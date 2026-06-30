@@ -33,7 +33,9 @@ jobs:
           } else {
             $version = "dev-$($env:GITHUB_SHA.Substring(0,7))"
           }
-          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          # NOTE: do not name this VERSION — MSBuild/NuGet reads $VERSION as the project's
+          # $(Version) property, which breaks restore/publish for non-SemVer values.
+          "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Version: $version"
 
       - name: Restore
@@ -45,7 +47,7 @@ jobs:
       - name: Publish (self-contained, no .NET needed)
         shell: pwsh
         run: |
-          $dir = "pkg/ActuallyGoodScan-$env:VERSION-selfcontained"
+          $dir = "pkg/ActuallyGoodScan-$env:RELEASE_VERSION-selfcontained"
           dotnet publish src/ScanApp.App/ScanApp.App.csproj -c Release -r win-x64 `
             --self-contained true -p:PublishSingleFile=false -o $dir
           if ($LASTEXITCODE -ne 0) { throw "publish failed" }
@@ -55,7 +57,7 @@ jobs:
       - name: Publish (framework-dependent, tiny)
         shell: pwsh
         run: |
-          $dir = "pkg/ActuallyGoodScan-$env:VERSION-fxdependent"
+          $dir = "pkg/ActuallyGoodScan-$env:RELEASE_VERSION-fxdependent"
           dotnet publish src/ScanApp.App/ScanApp.App.csproj -c Release -r win-x64 `
             --self-contained false -p:PublishSingleFile=false -o $dir
           if ($LASTEXITCODE -ne 0) { throw "publish failed" }
@@ -76,7 +78,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ActuallyGoodScan-${{ env.VERSION }}
+          name: ActuallyGoodScan-${{ env.RELEASE_VERSION }}
           path: out/*.zip
           retention-days: 90
 
@@ -86,6 +88,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:VERSION" (Get-ChildItem out/*.zip | ForEach-Object { $_.FullName }) `
-            --title "Actually Good Scan $env:VERSION" `
+          gh release create "$env:RELEASE_VERSION" (Get-ChildItem out/*.zip | ForEach-Object { $_.FullName }) `
+            --title "Actually Good Scan $env:RELEASE_VERSION" `
             --notes "Portable Windows builds. Download **selfcontained** to run with no .NET installed, or **fxdependent** (tiny) if you have the .NET 8 Desktop Runtime. Unzip and run ActuallyGoodScan.exe (SmartScreen -> More info -> Run anyway)."
