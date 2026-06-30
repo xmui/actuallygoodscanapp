@@ -3,11 +3,25 @@ using ScanApp.Core.Naming;
 
 namespace ScanApp.Core.Settings;
 
+/// <summary>Application colour theme.</summary>
+public enum ThemeMode
+{
+    Dark,
+    Light
+}
+
 /// <summary>
 /// Persisted user preferences. Serialized to <c>settings.json</c> by <see cref="SettingsStore"/>.
 /// </summary>
 public sealed class AppSettings
 {
+    /// <summary>Dark or light UI theme.</summary>
+    public ThemeMode Theme { get; set; } = ThemeMode.Dark;
+
+    /// <summary>Accent colour as #AARRGGBB (or #RRGGBB) hex; drives buttons/highlights.</summary>
+    public string AccentColor { get; set; } = "#FF4F8CFF";
+
+
     /// <summary>Last scanner device id used, so the app can reselect it on launch.</summary>
     public string? LastDeviceId { get; set; }
 

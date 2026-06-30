@@ -33,22 +33,57 @@ public sealed class ScannerHub : IDisposable
         }
     }
 
-    /// <summary>All devices across all backends. Real devices first, demo devices last.</summary>
-    public IReadOnlyList<ScannerDevice> GetDevices()
+    /// <summary>
+    /// Real (non-demo) scanners, deduplicated so the same physical device is not listed once per
+    /// backend. When a scanner is exposed by both TWAIN and WIA, the TWAIN entry wins.
+    /// </summary>
+    public IReadOnlyList<ScannerDevice> GetRealDevices()
     {
-        var devices = new List<ScannerDevice>();
+        var all = new List<ScannerDevice>();
         foreach (var backend in _backends)
         {
+            if (ReferenceEquals(backend, _mock))
+            {
+                continue;
+            }
             try
             {
-                devices.AddRange(backend.GetDevices());
+                all.AddRange(backend.GetDevices());
             }
             catch
             {
                 // ignore a misbehaving backend
             }
         }
-        return devices;
+
+        // Dedupe by normalized name, preferring TWAIN over WIA.
+        var byKey = new Dictionary<string, ScannerDevice>();
+        foreach (var d in all.OrderBy(d => d.Backend == "TWAIN" ? 0 : 1))
+        {
+            var key = NormalizeName(d.Name);
+            if (!byKey.ContainsKey(key))
+            {
+                byKey[key] = d;
+            }
+        }
+        return byKey.Values.ToList();
+    }
+
+    /// <summary>The demo devices, shown only when no real scanner is connected.</summary>
+    public IReadOnlyList<ScannerDevice> GetDemoDevices() => _mock.GetDevices();
+
+    private static string NormalizeName(string name)
+    {
+        // Lowercase, strip non-alphanumerics and backend/driver noise words, so "EPSON FF-680W"
+        // (TWAIN) and "WIA-EPSON FF-680W" match.
+        var cleaned = new string(name.ToLowerInvariant()
+            .Where(char.IsLetterOrDigit)
+            .ToArray());
+        foreach (var noise in new[] { "wia", "twain", "scanner", "driver" })
+        {
+            cleaned = cleaned.Replace(noise, "");
+        }
+        return cleaned;
     }
 
     public ScannerCapabilities QueryCapabilities(ScannerDevice device) =>

@@ -31,7 +31,9 @@ public static class PageProcessor
         var pages = new List<ScannedPage>();
         bool deskewNeeded = profile.SoftwareDeskew && !driver.Deskewed;
 
-        if (profile.Mode == ScanMode.BulkFlatbed && profile.SplitMultiplePhotos && !driver.Cropped)
+        // Photo splitting needs the whole platen. The scanner driver's auto-crop is disabled for this
+        // mode (see TwainScannerService), so run the splitter regardless of the driver flag.
+        if (profile.Mode == ScanMode.BulkFlatbed && profile.SplitMultiplePhotos)
         {
             var crops = MultiPhotoSplitter.Split(raw);
             foreach (var crop in crops)

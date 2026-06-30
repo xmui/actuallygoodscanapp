@@ -182,6 +182,9 @@ public sealed class TwainScannerService : IScannerService
         TrySet(() => src.Capabilities.ICapYResolution.SetValue(profile.Dpi));
         TrySet(() => src.Capabilities.ICapPixelType.SetValue(profile.Color ? PixelType.RGB : PixelType.Gray));
 
+        // Hide the driver's own progress / transfer window so scanning stays fully in-app.
+        TrySet(() => src.Capabilities.CapIndicators.SetValue(BoolType.False));
+
         bool feeder = profile.Mode == ScanMode.Sheetfed;
         TrySet(() => src.Capabilities.CapFeederEnabled.SetValue(feeder ? BoolType.True : BoolType.False));
         if (feeder)
@@ -189,9 +192,16 @@ public sealed class TwainScannerService : IScannerService
             TrySet(() => src.Capabilities.CapDuplexEnabled.SetValue(profile.Duplex ? BoolType.True : BoolType.False));
         }
 
+        // Splitting multiple photos needs the whole platen, so never let the driver auto-crop here.
+        bool wantDriverCrop = profile.PreferDriverAutoFeatures && !profile.SplitMultiplePhotos;
+        if (!wantDriverCrop)
+        {
+            TrySet(() => src.Capabilities.ICapAutomaticBorderDetection.SetValue(BoolType.False));
+        }
+
         if (profile.PreferDriverAutoFeatures)
         {
-            if (IsSupported(src.Capabilities.ICapAutomaticBorderDetection))
+            if (wantDriverCrop && IsSupported(src.Capabilities.ICapAutomaticBorderDetection))
             {
                 if (TrySet(() => src.Capabilities.ICapAutomaticBorderDetection.SetValue(BoolType.True)))
                 {

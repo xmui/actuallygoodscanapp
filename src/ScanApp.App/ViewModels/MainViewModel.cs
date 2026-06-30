@@ -11,10 +11,12 @@ using ScanApp.Core.Imaging;
 using ScanApp.Core.Models;
 using ScanApp.Core.Naming;
 using ScanApp.Core.Settings;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace ScanApp.App.ViewModels;
 
-/// <summary>Root view model: drives the start screen, the scan session, and saving.</summary>
+/// <summary>Root view model: drives the scan session, editing and saving.</summary>
 public sealed class MainViewModel : ObservableObject, IDisposable
 {
     private readonly ScannerHub _hub = new();
@@ -26,8 +28,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private ScannerDevice? _selectedDevice;
     private PageViewModel? _selectedPage;
     private CancellationTokenSource? _scanCts;
-    private bool _onStartScreen = true;
     private bool _isScanning;
+    private bool _modeOverridden;
+    private bool _noRealDevices;
     private string _statusText = "Ready.";
 
     public MainViewModel()
@@ -39,6 +42,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _settings.OutputDirectory = _store.DefaultOutputDirectory;
         }
         _activeProfile = _settings.FlatbedProfile;
+        ThemeManager.Apply(_settings);
 
         Pages.CollectionChanged += (_, _) =>
         {
@@ -46,10 +50,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             RaiseCommandStates();
         };
 
-        StartFlatbedCommand = new RelayCommand(() => StartMode(ScanMode.BulkFlatbed));
-        StartSheetfedCommand = new RelayCommand(() => StartMode(ScanMode.Sheetfed));
-        BackCommand = new RelayCommand(() => OnStartScreen = true);
+        SetFlatbedCommand = new RelayCommand(() => SetModeManually(ScanMode.BulkFlatbed));
+        SetSheetfedCommand = new RelayCommand(() => SetModeManually(ScanMode.Sheetfed));
         RefreshDevicesCommand = new RelayCommand(RefreshDevices);
+        UseDemoCommand = new RelayCommand(UseDemo);
         ScanCommand = new RelayCommand(async () => await ScanAsync(), () => !IsScanning && SelectedDevice is not null);
         CancelScanCommand = new RelayCommand(() => _scanCts?.Cancel(), () => IsScanning);
         ClearAllCommand = new RelayCommand(ClearAll, () => HasPages && !IsScanning);
@@ -57,23 +61,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SavePdfCommand = new RelayCommand(SavePdf, () => HasPages && !IsScanning);
         ChooseFolderCommand = new RelayCommand(ChooseFolder);
         OpenOutputFolderCommand = new RelayCommand(OpenOutputFolder);
+        OpenImagesCommand = new RelayCommand(OpenImages);
+        SetAccentCommand = new RelayCommand(p => SetAccent(p as string));
+
+        RefreshDevices();
     }
 
-    // ---- Navigation state ----
-    public bool OnStartScreen
-    {
-        get => _onStartScreen;
-        set { if (SetProperty(ref _onStartScreen, value)) OnPropertyChanged(nameof(OnScanScreen)); }
-    }
-
-    public bool OnScanScreen => !_onStartScreen;
-
+    // ---- Mode ----
     public ScanMode CurrentMode => _activeProfile.Mode;
     public bool IsFlatbed => _activeProfile.Mode == ScanMode.BulkFlatbed;
+    public bool IsSheetfed => _activeProfile.Mode == ScanMode.Sheetfed;
     public string ModeTitle => IsFlatbed ? "Bulk Flatbed" : "Sheetfed (ADF)";
 
     // ---- Devices ----
     public ObservableCollection<ScannerDevice> Devices { get; } = new();
+
+    public bool NoRealDevices
+    {
+        get => _noRealDevices;
+        private set => SetProperty(ref _noRealDevices, value);
+    }
 
     public ScannerDevice? SelectedDevice
     {
@@ -85,6 +92,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
                 _settings.LastDeviceId = value?.Id;
                 Save();
                 RaiseCommandStates();
+                if (value is not null && !_modeOverridden)
+                {
+                    AutoSelectMode(value);
+                }
             }
         }
     }
@@ -102,13 +113,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public bool IsScanning
     {
         get => _isScanning;
-        private set
-        {
-            if (SetProperty(ref _isScanning, value))
-            {
-                RaiseCommandStates();
-            }
-        }
+        private set { if (SetProperty(ref _isScanning, value)) RaiseCommandStates(); }
     }
 
     public string StatusText
@@ -116,6 +121,21 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _statusText;
         private set => SetProperty(ref _statusText, value);
     }
+
+    // ---- Theme ----
+    public bool ThemeIsLight
+    {
+        get => _settings.Theme == ThemeMode.Light;
+        set
+        {
+            _settings.Theme = value ? ThemeMode.Light : ThemeMode.Dark;
+            ThemeManager.Apply(_settings);
+            OnPropertyChanged();
+            Save();
+        }
+    }
+
+    public IReadOnlyList<AccentSwatch> AccentSwatches { get; } = ThemeManager.Swatches;
 
     // ---- Scan options (bound to the active profile) ----
     public int[] DpiOptions { get; } = { 150, 200, 300, 400, 600 };
@@ -190,10 +210,10 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     }
 
     // ---- Commands ----
-    public ICommand StartFlatbedCommand { get; }
-    public ICommand StartSheetfedCommand { get; }
-    public ICommand BackCommand { get; }
+    public ICommand SetFlatbedCommand { get; }
+    public ICommand SetSheetfedCommand { get; }
     public ICommand RefreshDevicesCommand { get; }
+    public ICommand UseDemoCommand { get; }
     public ICommand ScanCommand { get; }
     public ICommand CancelScanCommand { get; }
     public ICommand ClearAllCommand { get; }
@@ -201,40 +221,102 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand SavePdfCommand { get; }
     public ICommand ChooseFolderCommand { get; }
     public ICommand OpenOutputFolderCommand { get; }
+    public ICommand OpenImagesCommand { get; }
+    public ICommand SetAccentCommand { get; }
 
-    private void StartMode(ScanMode mode)
+    private void SetModeManually(ScanMode mode)
+    {
+        _modeOverridden = true;
+        ApplyMode(mode);
+    }
+
+    private void ApplyMode(ScanMode mode)
     {
         _activeProfile = _settings.ProfileFor(mode);
-        OnStartScreen = false;
-        RefreshDevices();
-        // Refresh all profile-bound properties for the newly active profile.
         foreach (var name in new[]
         {
-            nameof(CurrentMode), nameof(IsFlatbed), nameof(ModeTitle), nameof(Dpi), nameof(ColorScan),
-            nameof(Duplex), nameof(AutoStraighten), nameof(SplitMultiplePhotos), nameof(SelectedCropMode),
-            nameof(IsFixedSize), nameof(SelectedFixedSize)
+            nameof(CurrentMode), nameof(IsFlatbed), nameof(IsSheetfed), nameof(ModeTitle), nameof(Dpi),
+            nameof(ColorScan), nameof(Duplex), nameof(AutoStraighten), nameof(SplitMultiplePhotos),
+            nameof(SelectedCropMode), nameof(IsFixedSize), nameof(SelectedFixedSize)
         })
         {
             OnPropertyChanged(name);
         }
-        StatusText = $"{ModeTitle} ready. Place your {(IsFlatbed ? "item on the glass" : "pages in the feeder")} and press Scan.";
+    }
+
+    /// <summary>Picks the mode that fits the device: ADF/sheetfed scanners → Sheetfed, else Flatbed.</summary>
+    private void AutoSelectMode(ScannerDevice device)
+    {
+        var hinted = InferModeFromName(device.Name);
+        if (hinted is { } m)
+        {
+            ApplyMode(m);
+            return;
+        }
+
+        if (device.Backend == "Demo")
+        {
+            ApplyMode(device.Id.Contains("adf", StringComparison.OrdinalIgnoreCase) ? ScanMode.Sheetfed : ScanMode.BulkFlatbed);
+            return;
+        }
+
+        // Fall back to a capability probe off the UI thread.
+        Task.Run(() =>
+        {
+            ScanMode mode = ScanMode.BulkFlatbed;
+            try
+            {
+                var caps = _hub.QueryCapabilities(device);
+                mode = caps.SupportsFeeder ? ScanMode.Sheetfed : ScanMode.BulkFlatbed;
+            }
+            catch
+            {
+                // keep default
+            }
+            _dispatcher.Invoke(() => { if (!_modeOverridden) ApplyMode(mode); });
+        });
+    }
+
+    private static ScanMode? InferModeFromName(string name)
+    {
+        var n = name.ToLowerInvariant();
+        if (n.Contains("ff-680") || n.Contains("fastfoto") || n.Contains("adf") || n.Contains("sheet") || n.Contains("feeder"))
+        {
+            return ScanMode.Sheetfed;
+        }
+        if (n.Contains("opticbook") || n.Contains("a300") || n.Contains("flatbed") || n.Contains("perfection"))
+        {
+            return ScanMode.BulkFlatbed;
+        }
+        return null;
     }
 
     private void RefreshDevices()
     {
         Devices.Clear();
-        foreach (var d in _hub.GetDevices())
+        var real = _hub.GetRealDevices();
+        foreach (var d in real)
         {
             Devices.Add(d);
         }
 
-        SelectedDevice = Devices.FirstOrDefault(d => d.Id == _settings.LastDeviceId)
-            ?? Devices.FirstOrDefault();
+        NoRealDevices = real.Count == 0;
+        SelectedDevice = Devices.FirstOrDefault(d => d.Id == _settings.LastDeviceId) ?? Devices.FirstOrDefault();
 
-        if (Devices.Count == 0)
+        StatusText = NoRealDevices
+            ? "No scanner detected. Connect one and press refresh, or use the demo scanner."
+            : $"{ModeTitle} ready. Place your {(IsFlatbed ? "item on the glass" : "pages in the feeder")} and press Scan.";
+    }
+
+    private void UseDemo()
+    {
+        foreach (var d in _hub.GetDemoDevices())
         {
-            StatusText = "No scanners found. Connect a scanner or use the Demo device.";
+            Devices.Add(d);
         }
+        NoRealDevices = false;
+        SelectedDevice = Devices.LastOrDefault();
+        StatusText = "Demo scanner added. Press Scan to try the workflow with no hardware.";
     }
 
     private async Task ScanAsync()
@@ -277,7 +359,6 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     /// <summary>Runs the post-processing pipeline (off the UI thread) then adds pages on the UI thread.</summary>
     private void ProcessRawPage(RawScan raw, ScanProfile profile)
     {
-        // Called from the scanning background thread; do the heavy imaging here.
         var finished = PageProcessor.Process(raw.Image, profile, raw.DriverDid);
         foreach (var page in finished)
         {
@@ -287,11 +368,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void AddPage(ScanApp.Core.Models.ScannedPage page)
+    private void AddPage(ScannedPage page)
     {
         var vm = new PageViewModel(page, RemovePage) { Number = Pages.Count + 1 };
         Pages.Add(vm);
-        SelectedPage = vm; // live preview jumps to the newest page
+        SelectedPage = vm;
     }
 
     private void RemovePage(PageViewModel page)
@@ -320,6 +401,43 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         Pages.Clear();
         SelectedPage = null;
         StatusText = "Cleared.";
+    }
+
+    /// <summary>Imports existing image files as pages so prior scans can be cropped/edited/saved.</summary>
+    private void OpenImages()
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "Open images",
+            Multiselect = true,
+            Filter = "Images|*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.bmp|All files|*.*"
+        };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+
+        int added = 0;
+        foreach (var path in dialog.FileNames)
+        {
+            try
+            {
+                var image = Image.Load<Rgba32>(path);
+                int dpi = (int)Math.Round(image.Metadata.HorizontalResolution);
+                if (dpi <= 0) dpi = 300;
+                AddPage(new ScannedPage(image, dpi));
+                added++;
+            }
+            catch (Exception ex)
+            {
+                StatusText = $"Couldn't open {Path.GetFileName(path)}: {ex.Message}";
+            }
+        }
+
+        if (added > 0)
+        {
+            StatusText = $"Imported {added} image{(added == 1 ? "" : "s")}.";
+        }
     }
 
     private void SaveImages()
@@ -396,6 +514,17 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             StatusText = $"Could not open folder: {ex.Message}";
         }
+    }
+
+    private void SetAccent(string? hex)
+    {
+        if (string.IsNullOrWhiteSpace(hex))
+        {
+            return;
+        }
+        _settings.AccentColor = hex;
+        ThemeManager.Apply(_settings);
+        Save();
     }
 
     private void RaiseCommandStates()

@@ -84,6 +84,39 @@ public class ImagingTests
     }
 
     [Fact]
+    public void MultiPhotoSplitter_FindsThreeTexturedPhotos()
+    {
+        // Photos aren't solid fills; use noisy/textured rectangles to exercise the closing step.
+        var rng = new Random(7);
+        var rects = new[]
+        {
+            new Rectangle(80, 80, 320, 260),
+            new Rectangle(640, 90, 360, 240),
+            new Rectangle(300, 560, 380, 300)
+        };
+        using var img = new Image<SixLabors.ImageSharp.PixelFormats.Rgba32>(1200, 1000, TestImages.White);
+        img.ProcessPixelRows(accessor =>
+        {
+            foreach (var r in rects)
+            {
+                for (int y = r.Y; y < r.Bottom; y++)
+                {
+                    var row = accessor.GetRowSpan(y);
+                    for (int x = r.X; x < r.Right; x++)
+                    {
+                        // Mid-tone texture with light speckles (so it isn't a solid blob).
+                        byte v = (byte)(rng.Next(60, 200));
+                        row[x] = new SixLabors.ImageSharp.PixelFormats.Rgba32(v, v, v, 255);
+                    }
+                }
+            }
+        });
+
+        var boxes = MultiPhotoSplitter.DetectItemRects(img);
+        Assert.Equal(3, boxes.Count);
+    }
+
+    [Fact]
     public void MultiPhotoSplitter_SingleItem_ReturnsOneCrop()
     {
         using var img = TestImages.WhiteWith(1000, 800, new Rectangle(200, 150, 400, 300));

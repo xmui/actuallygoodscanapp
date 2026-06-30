@@ -18,7 +18,7 @@ public static class MultiPhotoSplitter
     /// </summary>
     public static List<Image<Rgba32>> Split(
         Image<Rgba32> source,
-        double minAreaFraction = 0.02,
+        double minAreaFraction = 0.015,
         double marginFraction = 0.01)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -45,11 +45,16 @@ public static class MultiPhotoSplitter
     /// Returns the bounding rectangles (source coordinates) of detected items, ordered top-to-bottom
     /// then left-to-right (natural reading order).
     /// </summary>
-    public static List<Rectangle> DetectItemRects(Image<Rgba32> source, double minAreaFraction = 0.02)
+    public static List<Rectangle> DetectItemRects(Image<Rgba32> source, double minAreaFraction = 0.015)
     {
         var mask = ImageAnalysis.BuildForegroundMask(source, maxDimension: 1000);
         int w = mask.Width, h = mask.Height;
         int minComponentArea = (int)(w * (double)h * minAreaFraction);
+
+        // Close gaps so each photo becomes one solid blob (photos often have light regions that don't
+        // threshold as foreground, which would otherwise fragment or hide an item).
+        int radius = Math.Max(2, Math.Min(w, h) / 80);
+        var fg = ImageAnalysis.Close(mask.Foreground, w, h, radius);
 
         var labels = new int[w * h];
         var stack = new Stack<int>();
@@ -57,7 +62,7 @@ public static class MultiPhotoSplitter
 
         for (int start = 0; start < labels.Length; start++)
         {
-            if (!mask.Foreground[start] || labels[start] != 0)
+            if (!fg[start] || labels[start] != 0)
             {
                 continue;
             }
@@ -78,15 +83,17 @@ public static class MultiPhotoSplitter
                 if (y < minY) minY = y;
                 if (y > maxY) maxY = y;
 
-                if (x > 0) Push(labels, mask, stack, idx - 1);
-                if (x < w - 1) Push(labels, mask, stack, idx + 1);
-                if (y > 0) Push(labels, mask, stack, idx - w);
-                if (y < h - 1) Push(labels, mask, stack, idx + w);
+                if (x > 0) Push(labels, fg, stack, idx - 1);
+                if (x < w - 1) Push(labels, fg, stack, idx + 1);
+                if (y > 0) Push(labels, fg, stack, idx - w);
+                if (y < h - 1) Push(labels, fg, stack, idx + w);
             }
 
             int bw = maxX - minX + 1;
             int bh = maxY - minY + 1;
-            if (bw * bh >= minComponentArea)
+            // Ignore the whole-platen blob (a near-full-frame component is the background, not an item).
+            bool fillsFrame = bw >= w * 0.96 && bh >= h * 0.96;
+            if (bw * bh >= minComponentArea && !fillsFrame)
             {
                 boxes.Add(AutoCropProcessor.ScaleRect(
                     new Rectangle(minX, minY, bw, bh), mask.Scale, source.Width, source.Height));
@@ -107,9 +114,9 @@ public static class MultiPhotoSplitter
         return merged;
     }
 
-    private static void Push(int[] labels, ImageAnalysis.Mask mask, Stack<int> stack, int idx)
+    private static void Push(int[] labels, bool[] fg, Stack<int> stack, int idx)
     {
-        if (labels[idx] == 0 && mask.Foreground[idx])
+        if (labels[idx] == 0 && fg[idx])
         {
             labels[idx] = 1;
             stack.Push(idx);
