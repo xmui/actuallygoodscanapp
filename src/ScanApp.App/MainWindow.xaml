@@ -1,0 +1,21 @@
+<Window x:Class="ScanApp.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:ScanApp.App.Views"
+        Title="Actually Good Scan" Height="780" Width="1180"
+        MinHeight="600" MinWidth="940"
+        Background="{StaticResource Bg}"
+        WindowStartupLocation="CenterScreen">
+
+    <Window.InputBindings>
+        <!-- Fast scanning: press Enter or F5 to scan the next item / feed. -->
+        <KeyBinding Key="Return" Command="{Binding ScanCommand}" />
+        <KeyBinding Key="F5" Command="{Binding ScanCommand}" />
+        <KeyBinding Key="Escape" Command="{Binding CancelScanCommand}" />
+    </Window.InputBindings>
+
+    <Grid>
+        <views:StartView Visibility="{Binding OnStartScreen, Converter={StaticResource BoolToVis}}" />
+        <views:ScanView Visibility="{Binding OnScanScreen, Converter={StaticResource BoolToVis}}" />
+    </Grid>
+</Window>
