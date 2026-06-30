@@ -9,6 +9,24 @@ Built for and tested against:
 
 …and works with any TWAIN or WIA scanner.
 
+## Download (no .NET needed)
+
+Grab a ready-to-run build from the [**Releases**](../../releases) page — no .NET SDK or build step
+required. Each release has two zips:
+
+- **`…-selfcontained.zip`** — runs on any Windows 10/11 with **nothing installed** (the .NET runtime
+  is bundled, ~70 MB). Recommended.
+- **`…-fxdependent.zip`** — tiny (~few MB) but needs the free
+  [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) installed once.
+
+Unzip the whole folder and double-click `ActuallyGoodScan.exe`. On first launch Windows SmartScreen
+may warn (the app is unsigned) → **"More info" → "Run anyway."** Each zip includes a `READ-ME-FIRST.txt`.
+
+> **Maintainers:** releases are built automatically by GitHub Actions. Push a version tag to publish:
+> `git tag v1.0.0 && git push origin v1.0.0`. The workflow (`.github/workflows/release.yml`) builds
+> both zips on a Windows runner and attaches them to the Release. You can also trigger it manually
+> from the **Actions** tab ("Run workflow") to get the zips as build artifacts without cutting a release.
+
 ## Features
 
 - **Two modes**

@@ -1,0 +1,91 @@
+name: Release portable build
+
+# Build the runnable Windows zips on GitHub's Windows runner so nobody needs .NET locally.
+#  - Push a tag like v1.0.0  -> builds both zips AND attaches them to a GitHub Release.
+#  - "Run workflow" button    -> builds both zips and uploads them as downloadable artifacts.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed for `gh release create`
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Determine version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $version = $env:GITHUB_REF_NAME
+          } else {
+            $version = "dev-$($env:GITHUB_SHA.Substring(0,7))"
+          }
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Version: $version"
+
+      - name: Restore
+        run: dotnet restore ActuallyGoodScanApp.sln
+
+      - name: Test core pipeline
+        run: dotnet test src/ScanApp.Core.Tests/ScanApp.Core.Tests.csproj -c Release --nologo
+
+      - name: Publish (self-contained, no .NET needed)
+        shell: pwsh
+        run: |
+          $dir = "pkg/ActuallyGoodScan-$env:VERSION-selfcontained"
+          dotnet publish src/ScanApp.App/ScanApp.App.csproj -c Release -r win-x64 `
+            --self-contained true -p:PublishSingleFile=false -o $dir
+          if ($LASTEXITCODE -ne 0) { throw "publish failed" }
+          'portable' | Out-File -FilePath "$dir/portable.marker" -Encoding utf8
+          Copy-Item build/dist/README-selfcontained.txt "$dir/READ-ME-FIRST.txt"
+
+      - name: Publish (framework-dependent, tiny)
+        shell: pwsh
+        run: |
+          $dir = "pkg/ActuallyGoodScan-$env:VERSION-fxdependent"
+          dotnet publish src/ScanApp.App/ScanApp.App.csproj -c Release -r win-x64 `
+            --self-contained false -p:PublishSingleFile=false -o $dir
+          if ($LASTEXITCODE -ne 0) { throw "publish failed" }
+          'portable' | Out-File -FilePath "$dir/portable.marker" -Encoding utf8
+          Copy-Item build/dist/README-fxdependent.txt "$dir/READ-ME-FIRST.txt"
+
+      - name: Package zips
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Get-ChildItem pkg -Directory | ForEach-Object {
+            $zip = "out/$($_.Name).zip"
+            Compress-Archive -Path $_.FullName -DestinationPath $zip -Force
+            Write-Host "Packed $zip"
+          }
+          Get-ChildItem out
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ActuallyGoodScan-${{ env.VERSION }}
+          path: out/*.zip
+          retention-days: 90
+
+      - name: Publish GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$env:VERSION" (Get-ChildItem out/*.zip | ForEach-Object { $_.FullName }) `
+            --title "Actually Good Scan $env:VERSION" `
+            --notes "Portable Windows builds. Download **selfcontained** to run with no .NET installed, or **fxdependent** (tiny) if you have the .NET 8 Desktop Runtime. Unzip and run ActuallyGoodScan.exe (SmartScreen -> More info -> Run anyway)."
