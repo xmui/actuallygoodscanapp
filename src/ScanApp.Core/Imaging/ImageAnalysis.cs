@@ -128,6 +128,63 @@ public static class ImageAnalysis
     }
 
     /// <summary>
+    /// Morphological closing (dilate then erode) of a boolean mask with a square structuring element
+    /// of the given radius. Consolidates a fragmented item (e.g. a photo whose light areas didn't
+    /// threshold as foreground) into one solid blob so connected-component splitting is reliable.
+    /// Implemented as separable max/min passes for speed.
+    /// </summary>
+    public static bool[] Close(bool[] mask, int width, int height, int radius)
+    {
+        if (radius <= 0)
+        {
+            return (bool[])mask.Clone();
+        }
+
+        var dil = Morph(mask, width, height, radius, dilate: true);
+        return Morph(dil, width, height, radius, dilate: false);
+    }
+
+    private static bool[] Morph(bool[] src, int width, int height, int radius, bool dilate)
+    {
+        // Horizontal pass.
+        var tmp = new bool[src.Length];
+        for (int y = 0; y < height; y++)
+        {
+            int b = y * width;
+            for (int x = 0; x < width; x++)
+            {
+                bool acc = !dilate; // dilate seeds false (OR), erode seeds true (AND)
+                int lo = Math.Max(0, x - radius), hi = Math.Min(width - 1, x + radius);
+                for (int k = lo; k <= hi; k++)
+                {
+                    bool v = src[b + k];
+                    acc = dilate ? (acc || v) : (acc && v);
+                }
+                tmp[b + x] = acc;
+            }
+        }
+
+        // Vertical pass.
+        var dst = new bool[src.Length];
+        for (int x = 0; x < width; x++)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                bool acc = !dilate;
+                int lo = Math.Max(0, y - radius), hi = Math.Min(height - 1, y + radius);
+                for (int k = lo; k <= hi; k++)
+                {
+                    bool v = tmp[(k * width) + x];
+                    acc = dilate ? (acc || v) : (acc && v);
+                }
+                dst[(y * width) + x] = acc;
+            }
+        }
+
+        return dst;
+    }
+
+    /// <summary>
     /// Content bounding box on the mask, noise-tolerant: a row/column counts as content only when
     /// at least <paramref name="minFraction"/> of it is foreground. Returns null for a blank mask.
     /// </summary>

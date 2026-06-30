@@ -1,6 +1,14 @@
 <UserControl x:Class="ScanApp.App.Views.ScanView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <!-- Segmented mode toggle: highlights the active mode. -->
+        <Style x:Key="ModeButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
+            <Setter Property="Padding" Value="14,7" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+    </UserControl.Resources>
+
     <Grid Margin="16">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -17,19 +25,49 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                <Button Content="‹ Back" Command="{Binding BackCommand}" Style="{StaticResource GhostButton}" Padding="12,8" />
-                <TextBlock Text="{Binding ModeTitle}" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" Margin="16,0,0,0" />
+                <TextBlock Text="Actually Good Scan" FontSize="18" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,18,0" />
+                <!-- Mode toggle (auto-set from scanner type; click to override) -->
+                <Border Background="{StaticResource PanelAlt}" CornerRadius="9" Padding="3">
+                    <StackPanel Orientation="Horizontal">
+                        <Button Command="{Binding SetFlatbedCommand}" Content="Flatbed">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource ModeButton}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsFlatbed}" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource Accent}" />
+                                            <Setter Property="Foreground" Value="White" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                        <Button Command="{Binding SetSheetfedCommand}" Content="Sheetfed">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource ModeButton}">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSheetfed}" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource Accent}" />
+                                            <Setter Property="Foreground" Value="White" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                </Border>
             </StackPanel>
 
             <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <Button Content="Open images" Command="{Binding OpenImagesCommand}" Style="{StaticResource GhostButton}"
+                        Padding="14,10" Margin="0,0,10,0" />
                 <Button Content="◼ Cancel" Command="{Binding CancelScanCommand}" Style="{StaticResource GhostButton}"
                         Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}}" Margin="0,0,10,0" />
                 <Button Command="{Binding ScanCommand}" Style="{StaticResource PrimaryButton}"
                         MinWidth="160" Padding="22,12"
                         Visibility="{Binding IsScanning, Converter={StaticResource BoolToVis}, ConverterParameter=invert}">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="⤓  Scan" FontSize="16" FontWeight="SemiBold" />
-                        <TextBlock Text="  (Enter)" FontSize="12" Opacity="0.8" VerticalAlignment="Center" />
+                        <TextBlock Text="⤓  Scan" FontSize="16" FontWeight="SemiBold" Foreground="White" />
+                        <TextBlock Text="  (Enter)" FontSize="12" Opacity="0.8" VerticalAlignment="Center" Foreground="White" />
                     </StackPanel>
                 </Button>
             </StackPanel>
@@ -83,7 +121,7 @@
             <!-- Preview -->
             <Border Grid.Column="1" Margin="12,0" Background="{StaticResource Panel}" CornerRadius="10">
                 <Grid>
-                    <TextBlock Text="Your scanned pages will appear here.&#10;Press Scan to begin."
+                    <TextBlock Text="Your scanned pages will appear here.&#10;Press Scan to begin, or Open images."
                                TextAlignment="Center" Foreground="{StaticResource TextDim}" FontSize="15"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                Visibility="{Binding SelectedPage, Converter={StaticResource NullToVis}, ConverterParameter=invert}" />
@@ -107,17 +145,21 @@
                             <Button Grid.Column="1" Content="⟳" Command="{Binding RefreshDevicesCommand}"
                                     ToolTip="Refresh device list" Style="{StaticResource GhostButton}" Padding="9,5" Margin="6,0,0,0" />
                         </Grid>
+                        <!-- Empty-state: offer the demo scanner only when nothing is connected -->
+                        <Button Content="No scanner detected — use demo scanner" Command="{Binding UseDemoCommand}"
+                                Style="{StaticResource GhostButton}" Margin="0,8,0,0" FontSize="12"
+                                Visibility="{Binding NoRealDevices, Converter={StaticResource BoolToVis}}" />
 
                         <TextBlock Text="Scan settings" FontWeight="SemiBold" Margin="0,18,0,6" />
                         <TextBlock Text="Resolution (DPI)" Foreground="{StaticResource TextDim}" FontSize="12" />
                         <ComboBox ItemsSource="{Binding DpiOptions}" SelectedItem="{Binding Dpi}" Margin="0,2,0,8" />
 
-                        <CheckBox Content="Colour" IsChecked="{Binding ColorScan}" Foreground="{StaticResource Text}" Margin="0,2" />
-                        <CheckBox Content="Duplex (both sides)" IsChecked="{Binding Duplex}" Foreground="{StaticResource Text}"
-                                  Margin="0,2" Visibility="{Binding IsFlatbed, Converter={StaticResource BoolToVis}, ConverterParameter=invert}" />
-                        <CheckBox Content="Auto-straighten (deskew)" IsChecked="{Binding AutoStraighten}" Foreground="{StaticResource Text}" Margin="0,2" />
-                        <CheckBox Content="Split multiple photos on glass" IsChecked="{Binding SplitMultiplePhotos}" Foreground="{StaticResource Text}"
-                                  Margin="0,2" Visibility="{Binding IsFlatbed, Converter={StaticResource BoolToVis}}" />
+                        <CheckBox Content="Colour" IsChecked="{Binding ColorScan}" Margin="0,3" />
+                        <CheckBox Content="Duplex (both sides)" IsChecked="{Binding Duplex}" Margin="0,3"
+                                  Visibility="{Binding IsSheetfed, Converter={StaticResource BoolToVis}}" />
+                        <CheckBox Content="Auto-straighten (deskew)" IsChecked="{Binding AutoStraighten}" Margin="0,3" />
+                        <CheckBox Content="Split multiple photos on glass" IsChecked="{Binding SplitMultiplePhotos}" Margin="0,3"
+                                  Visibility="{Binding IsFlatbed, Converter={StaticResource BoolToVis}}" />
 
                         <TextBlock Text="Crop" Foreground="{StaticResource TextDim}" FontSize="12" Margin="0,10,0,2" />
                         <ComboBox ItemsSource="{Binding CropModes}" SelectedItem="{Binding SelectedCropMode}" />
@@ -146,6 +188,32 @@
                         <Button Content="Save images" Command="{Binding SaveImagesCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,0,8" />
                         <Button Content="Save as multi-page PDF" Command="{Binding SavePdfCommand}" Style="{StaticResource GhostButton}" Margin="0,0,0,8" />
                         <Button Content="Open output folder" Command="{Binding OpenOutputFolderCommand}" Style="{StaticResource GhostButton}" />
+
+                        <!-- Theme -->
+                        <TextBlock Text="Theme" FontWeight="SemiBold" Margin="0,20,0,6" />
+                        <CheckBox Content="Light theme" IsChecked="{Binding ThemeIsLight}" Margin="0,2,0,8" />
+                        <TextBlock Text="Accent colour" Foreground="{StaticResource TextDim}" FontSize="12" Margin="0,0,0,4" />
+                        <ItemsControl ItemsSource="{Binding AccentSwatches}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Width="30" Height="30" Margin="0,0,8,8" Cursor="Hand"
+                                            ToolTip="{Binding Name}"
+                                            Command="{Binding DataContext.SetAccentCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                            CommandParameter="{Binding Hex}">
+                                        <Button.Template>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border Background="{Binding Brush}" CornerRadius="15" />
+                                            </ControlTemplate>
+                                        </Button.Template>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
