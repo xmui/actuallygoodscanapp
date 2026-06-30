@@ -1,13 +1,23 @@
 name: Release portable build
 
 # Build the runnable Windows zips on GitHub's Windows runner so nobody needs .NET locally.
-#  - Push a tag like v1.0.0  -> builds both zips AND attaches them to a GitHub Release.
-#  - "Run workflow" button    -> builds both zips and uploads them as downloadable artifacts.
+#  - Push a tag like v1.0.0          -> builds both zips AND publishes a GitHub Release.
+#  - "Run workflow" (publish=false)  -> builds both zips and uploads them as downloadable artifacts.
+#  - "Run workflow" (publish=true)   -> also creates/updates a Release (tag created by gh on `main`).
 on:
   push:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Also create/update a GitHub Release with the zips'
+        type: boolean
+        default: false
+      version:
+        description: 'Release version/tag to use when publishing (e.g. v1.0.0)'
+        type: string
+        default: 'v1.0.0'
 
 permissions:
   contents: write   # needed for `gh release create`
@@ -30,6 +40,8 @@ jobs:
         run: |
           if ($env:GITHUB_REF -like 'refs/tags/*') {
             $version = $env:GITHUB_REF_NAME
+          } elseif ('${{ github.event.inputs.publish_release }}' -eq 'true' -and '${{ github.event.inputs.version }}') {
+            $version = '${{ github.event.inputs.version }}'
           } else {
             $version = "dev-$($env:GITHUB_SHA.Substring(0,7))"
           }
@@ -82,12 +94,27 @@ jobs:
           path: out/*.zip
           retention-days: 90
 
-      - name: Publish GitHub Release (tags only)
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish GitHub Release
+        # On a tag push, or on a manual run with publish_release=true.
+        if: startsWith(github.ref, 'refs/tags/') || github.event.inputs.publish_release == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$env:RELEASE_VERSION" (Get-ChildItem out/*.zip | ForEach-Object { $_.FullName }) `
-            --title "Actually Good Scan $env:RELEASE_VERSION" `
-            --notes "Portable Windows builds. Download **selfcontained** to run with no .NET installed, or **fxdependent** (tiny) if you have the .NET 8 Desktop Runtime. Unzip and run ActuallyGoodScan.exe (SmartScreen -> More info -> Run anyway)."
+          $rv = $env:RELEASE_VERSION
+          $zips = Get-ChildItem out/*.zip | ForEach-Object { $_.FullName }
+          $notes = "Portable Windows builds. Download **selfcontained** to run with no .NET installed, or **fxdependent** (tiny) if you have the .NET 8 Desktop Runtime. Unzip and run ActuallyGoodScan.exe (SmartScreen -> More info -> Run anyway)."
+
+          # Idempotent: update assets if the release already exists, otherwise create it.
+          gh release view $rv 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $rv @zips --clobber
+          } else {
+            $targetArgs = @()
+            if ($env:GITHUB_REF -notlike 'refs/tags/*') {
+              # Manual run: create the tag at main's tip so the release points at the merged code.
+              $targetArgs = @('--target', 'main')
+            }
+            gh release create $rv @zips @targetArgs --title "Actually Good Scan $rv" --notes $notes
+          }
+          if ($LASTEXITCODE -ne 0) { throw "release publish failed" }
