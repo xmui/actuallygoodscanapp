@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>ScanApp.App</RootNamespace>
+    <AssemblyName>ActuallyGoodScan</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- Allows package restore (and CI) to resolve Windows-targeted refs on non-Windows agents.
+         The app itself still builds and runs only on Windows. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- TWAIN/WIA require STA + a Win32 message pump, both provided by WPF. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScanApp.Core\ScanApp.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- TWAIN data-source control. Bundles the DSM loader; pairs with twaindsm.dll for portability. -->
+    <PackageReference Include="NTwain" Version="3.7.4" />
+    <!-- Used by the Demo scanner to synthesise sample scans so the UI runs without hardware. -->
+    <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.4" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,19 @@
+# .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+publish/
+*.user
+
+# Rider / VS
+.vs/
+.idea/
+*.suo
+
+# Test results
+[Tt]est[Rr]esults/
+
+# Portable publish output and runtime data
+build/portable/
+Data/
