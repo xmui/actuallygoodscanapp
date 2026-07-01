@@ -3,6 +3,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Formats.Png;
 using SixLabors.ImageSharp.Formats.Tiff;
+using SixLabors.ImageSharp.Formats.Webp;
 using SixLabors.ImageSharp.Metadata;
 
 namespace ScanApp.Core.Export;
@@ -24,6 +25,9 @@ public static class ImageExporter
                 break;
             case OutputFormat.Tiff:
                 page.Image.SaveAsTiff(path, new TiffEncoder());
+                break;
+            case OutputFormat.Webp:
+                page.Image.SaveAsWebp(path, new WebpEncoder { Quality = Math.Clamp(jpegQuality, 1, 100) });
                 break;
             default:
                 page.Image.SaveAsJpeg(path, new JpegEncoder { Quality = Math.Clamp(jpegQuality, 1, 100) });

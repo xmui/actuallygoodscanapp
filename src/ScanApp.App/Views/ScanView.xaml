@@ -83,12 +83,23 @@
             <!-- Filmstrip -->
             <Border Grid.Column="0" Background="{DynamicResource Panel}" CornerRadius="10" Padding="6">
                 <DockPanel>
-                    <Grid DockPanel.Dock="Top" Margin="6,4,6,8">
-                        <TextBlock Text="Pages" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <Button Content="Clear" Command="{Binding ClearAllCommand}" HorizontalAlignment="Right"
-                                Style="{StaticResource GhostButton}" Padding="8,4" FontSize="11" />
-                    </Grid>
-                    <ListBox ItemsSource="{Binding Pages}" SelectedItem="{Binding SelectedPage}"
+                    <StackPanel DockPanel.Dock="Top" Margin="6,4,6,8">
+                        <Grid>
+                            <TextBlock Text="Pages" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Button Content="Clear" Command="{Binding ClearAllCommand}" HorizontalAlignment="Right"
+                                    Style="{StaticResource GhostButton}" Padding="8,4" FontSize="11" />
+                        </Grid>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <Button Content="⟳ selected" Command="{Binding BatchRotateRightCommand}" ToolTip="Rotate selected pages"
+                                    Style="{StaticResource GhostButton}" Padding="8,3" FontSize="11" Margin="0,0,4,0" />
+                            <Button Content="✕ selected" Command="{Binding BatchDeleteCommand}" ToolTip="Delete selected pages"
+                                    Style="{StaticResource GhostButton}" Padding="8,3" FontSize="11" />
+                        </StackPanel>
+                    </StackPanel>
+                    <ListBox x:Name="Filmstrip" ItemsSource="{Binding Pages}" SelectedItem="{Binding SelectedPage}"
+                             SelectionMode="Extended" SelectionChanged="OnFilmstripSelectionChanged"
+                             AllowDrop="True" PreviewMouseLeftButtonDown="OnFilmstripMouseDown"
+                             PreviewMouseMove="OnFilmstripMouseMove" Drop="OnFilmstripDrop"
                              Background="Transparent" BorderThickness="0"
                              ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                              HorizontalContentAlignment="Stretch">
@@ -124,27 +135,55 @@
                                TextAlignment="Center" Foreground="{DynamicResource TextDim}" FontSize="15"
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                Visibility="{Binding SelectedPage, Converter={StaticResource NullToVis}, ConverterParameter=invert}" />
-                    <Image Source="{Binding SelectedPage.Preview}" Stretch="Uniform" Margin="18"
-                           RenderOptions.BitmapScalingMode="HighQuality">
-                        <Image.ContextMenu>
-                            <ContextMenu>
-                                <MenuItem Header="Rotate left 90°"  Command="{Binding PlacementTarget.DataContext.SelectedPage.RotateLeftCommand,  RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                <MenuItem Header="Rotate right 90°" Command="{Binding PlacementTarget.DataContext.SelectedPage.RotateRightCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                <MenuItem Header="Rotate 180°"      Command="{Binding PlacementTarget.DataContext.SelectedPage.Rotate180Command,   RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                <Separator />
-                                <MenuItem Header="Auto crop box"    Command="{Binding PlacementTarget.DataContext.SelectedPage.AutoCropBoxCommand,  RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                <MenuItem Header="Reset edits"      Command="{Binding PlacementTarget.DataContext.SelectedPage.ResetEditsCommand,   RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                                <Separator />
-                                <MenuItem Header="Delete page"      Command="{Binding PlacementTarget.DataContext.SelectedPage.DeleteCommand,       RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
-                            </ContextMenu>
-                        </Image.ContextMenu>
-                    </Image>
-                    <controls:CropOverlay Margin="18"
-                                          ImagePixelWidth="{Binding SelectedPage.ImagePixelWidth}"
-                                          ImagePixelHeight="{Binding SelectedPage.ImagePixelHeight}"
-                                          IsActive="{Binding SelectedPage.IsCropActive}"
-                                          CropRect="{Binding SelectedPage.CropRect, Mode=TwoWay}"
-                                          RotationAngle="{Binding SelectedPage.RotationDegrees, Mode=TwoWay}" />
+
+                    <ScrollViewer x:Name="PreviewScroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                  PreviewMouseWheel="OnPreviewWheel" Background="Transparent">
+                        <Grid x:Name="PreviewSurface"
+                              Width="{Binding ViewportWidth, ElementName=PreviewScroller}"
+                              Height="{Binding ViewportHeight, ElementName=PreviewScroller}">
+                            <Grid.LayoutTransform>
+                                <ScaleTransform ScaleX="{Binding Zoom}" ScaleY="{Binding Zoom}" />
+                            </Grid.LayoutTransform>
+                            <Image Source="{Binding SelectedPage.Preview}" Stretch="Uniform" Margin="18"
+                                   RenderOptions.BitmapScalingMode="HighQuality">
+                                <Image.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Rotate left 90°"  Command="{Binding PlacementTarget.DataContext.SelectedPage.RotateLeftCommand,  RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        <MenuItem Header="Rotate right 90°" Command="{Binding PlacementTarget.DataContext.SelectedPage.RotateRightCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        <MenuItem Header="Rotate 180°"      Command="{Binding PlacementTarget.DataContext.SelectedPage.Rotate180Command,   RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        <Separator />
+                                        <MenuItem Header="Auto crop box"    Command="{Binding PlacementTarget.DataContext.SelectedPage.AutoCropBoxCommand,  RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        <MenuItem Header="Reset edits"      Command="{Binding PlacementTarget.DataContext.SelectedPage.ResetEditsCommand,   RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                        <Separator />
+                                        <MenuItem Header="Delete page"      Command="{Binding PlacementTarget.DataContext.SelectedPage.DeleteCommand,       RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                                    </ContextMenu>
+                                </Image.ContextMenu>
+                            </Image>
+                            <controls:CropOverlay Margin="18"
+                                                  ImagePixelWidth="{Binding SelectedPage.ImagePixelWidth}"
+                                                  ImagePixelHeight="{Binding SelectedPage.ImagePixelHeight}"
+                                                  IsActive="{Binding SelectedPage.IsCropActive}"
+                                                  CropRect="{Binding SelectedPage.CropRect, Mode=TwoWay}"
+                                                  RotationAngle="{Binding SelectedPage.RotationDegrees, Mode=TwoWay}" />
+                        </Grid>
+                    </ScrollViewer>
+
+                    <!-- Live progressive scan preview (VueScan-style) -->
+                    <Border Background="{DynamicResource Panel}"
+                            Visibility="{Binding IsScanPreviewVisible, Converter={StaticResource BoolToVis}}">
+                        <Grid>
+                            <Image Source="{Binding ScanPreviewImage}" Stretch="Uniform" Margin="18" />
+                            <TextBlock Text="Scanning…" HorizontalAlignment="Center" VerticalAlignment="Top"
+                                       Margin="0,8,0,0" Foreground="{DynamicResource TextDim}" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Zoom controls -->
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,12,12">
+                        <Button Content="－" Command="{Binding ZoomOutCommand}" Style="{StaticResource GhostButton}" Padding="9,3" Margin="0,0,4,0" />
+                        <Button Content="Fit" Command="{Binding ZoomFitCommand}" Style="{StaticResource GhostButton}" Padding="9,3" Margin="0,0,4,0" />
+                        <Button Content="＋" Command="{Binding ZoomInCommand}" Style="{StaticResource GhostButton}" Padding="9,3" />
+                    </StackPanel>
                 </Grid>
             </Border>
 
@@ -181,6 +220,9 @@
                             <Slider Minimum="-100" Maximum="100" Value="{Binding SelectedPage.Contrast}" TickFrequency="10" IsSnapToTickEnabled="True" />
                             <CheckBox Content="Remove dust &amp; hair" IsChecked="{Binding SelectedPage.RemoveDust}" Margin="0,6,0,2" />
                             <CheckBox Content="Auto levels" IsChecked="{Binding SelectedPage.AutoLevel}" Margin="0,2" />
+                            <CheckBox Content="Document cleanup" IsChecked="{Binding SelectedPage.DocumentCleanup}" Margin="0,2" />
+                            <CheckBox Content="Black &amp; white" IsChecked="{Binding SelectedPage.BlackAndWhite}" Margin="18,2,0,0"
+                                      Visibility="{Binding SelectedPage.DocumentCleanup, Converter={StaticResource BoolToVis}}" />
                             <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                                 <Button Content="Reset edits" Command="{Binding SelectedPage.ResetEditsCommand}" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12" Margin="0,0,6,0" />
                                 <Button Content="Apply to all" Command="{Binding ApplyEditsToAllCommand}" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12" ToolTip="Copy these edits to every page" />
@@ -229,13 +271,39 @@
                                     Style="{StaticResource GhostButton}" Padding="9,5" Margin="6,0,0,0" />
                         </Grid>
                         <TextBlock Text="File name" Foreground="{DynamicResource TextDim}" FontSize="12" />
-                        <TextBox Text="{Binding FileNameTemplateText, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,2" />
-                        <TextBlock Text="Tokens: {date} {time} {counter}" Foreground="{DynamicResource TextDim}" FontSize="10" Margin="0,0,0,8" />
+                        <TextBox Text="{Binding FileNamePrefix, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,4" />
+                        <CheckBox Content="Include date" IsChecked="{Binding IncludeDateInName}" Margin="0,2" />
+                        <CheckBox Content="Include number" IsChecked="{Binding IncludeCounterInName}" Margin="0,2" />
+                        <StackPanel Orientation="Horizontal" Margin="0,4,0,0"
+                                    Visibility="{Binding IncludeCounterInName, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Number digits" Foreground="{DynamicResource TextDim}" FontSize="12" VerticalAlignment="Center" Margin="0,0,6,0" />
+                            <ComboBox ItemsSource="{Binding CounterDigitOptions}" SelectedItem="{Binding CounterDigits}" Width="64" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding FileNamePreview, StringFormat='e.g. {0}'}"
+                                   Foreground="{DynamicResource TextDim}" FontSize="11" Margin="0,6,0,8" TextTrimming="CharacterEllipsis" />
                         <TextBlock Text="Image format" Foreground="{DynamicResource TextDim}" FontSize="12" />
                         <ComboBox ItemsSource="{Binding ImageFormats}" SelectedItem="{Binding ImageFormat}" Margin="0,2,0,12" />
                         <Button Content="Save images" Command="{Binding SaveImagesCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,0,8" />
                         <Button Content="Save as multi-page PDF" Command="{Binding SavePdfCommand}" Style="{StaticResource GhostButton}" Margin="0,0,0,8" />
                         <Button Content="Open output folder" Command="{Binding OpenOutputFolderCommand}" Style="{StaticResource GhostButton}" />
+
+                        <!-- Project -->
+                        <TextBlock Text="Project" FontWeight="SemiBold" Margin="0,18,0,6" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Save project" Command="{Binding SaveProjectCommand}" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12" Margin="0,0,6,0" />
+                            <Button Content="Open project" Command="{Binding OpenProjectCommand}" Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12" />
+                        </StackPanel>
+                        <ItemsControl ItemsSource="{Binding RecentProjects}" Margin="0,6,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Content="{Binding}" ToolTip="{Binding}"
+                                            Command="{Binding DataContext.OpenRecentProjectCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                            CommandParameter="{Binding}"
+                                            Style="{StaticResource GhostButton}" HorizontalContentAlignment="Left"
+                                            Padding="8,4" FontSize="11" Margin="0,0,0,4" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
 
                         <!-- Theme -->
                         <TextBlock Text="Theme" FontWeight="SemiBold" Margin="0,20,0,6" />

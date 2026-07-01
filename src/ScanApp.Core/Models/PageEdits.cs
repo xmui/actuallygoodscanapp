@@ -13,6 +13,8 @@ public sealed record PageEdits
     public int Contrast { get; init; }
     public bool RemoveDust { get; init; }
     public bool AutoLevel { get; init; }
+    public bool DocumentCleanup { get; init; }
+    public bool BlackAndWhite { get; init; }
 
     /// <summary>Sensible defaults for a freshly scanned/imported page (auto-levels + crop box on).</summary>
     public static PageEdits Defaults => new() { AutoLevel = true, CropActive = true };

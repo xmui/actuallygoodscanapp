@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using ScanApp.App.Infrastructure;
@@ -10,6 +11,7 @@ using ScanApp.Core.Export;
 using ScanApp.Core.Imaging;
 using ScanApp.Core.Models;
 using ScanApp.Core.Naming;
+using ScanApp.Core.Projects;
 using ScanApp.Core.Settings;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -32,6 +34,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _modeOverridden;
     private bool _noRealDevices;
     private string _statusText = "Ready.";
+    private BitmapSource? _scanPreview;
+    private bool _isScanPreviewVisible;
+    private double _zoom = 1.0;
 
     public MainViewModel()
     {
@@ -69,8 +74,23 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         DeleteSelectedCommand = new RelayCommand(() => { if (SelectedPage is not null) RemovePage(SelectedPage); }, () => SelectedPage is not null);
         RotateSelectedRightCommand = new RelayCommand(() => SelectedPage?.RotateRightCommand.Execute(null));
         RotateSelectedLeftCommand = new RelayCommand(() => SelectedPage?.RotateLeftCommand.Execute(null));
+        BatchRotateRightCommand = new RelayCommand(() => BatchRotate(1), () => SelectedPages.Count > 0);
+        BatchDeleteCommand = new RelayCommand(BatchDelete, () => SelectedPages.Count > 0);
+        SaveProjectCommand = new RelayCommand(SaveProject, () => HasPages);
+        OpenProjectCommand = new RelayCommand(OpenProject);
+        OpenRecentProjectCommand = new RelayCommand(p => OpenProjectFolder(p as string));
+        ZoomInCommand = new RelayCommand(() => Zoom = Math.Min(8, Zoom + 0.25));
+        ZoomOutCommand = new RelayCommand(() => Zoom = Math.Max(1, Zoom - 0.25));
+        ZoomFitCommand = new RelayCommand(() => Zoom = 1.0);
+
+        foreach (var p in _settings.RecentProjects)
+        {
+            RecentProjects.Add(p);
+        }
+        UpdateTemplateFromBuilder(); // keep the composed template in sync with the builder fields
 
         RefreshDevices();
+        TryRestoreSession();
     }
 
     // ---- Mode ----
@@ -134,6 +154,73 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         get => _statusText;
         private set => SetProperty(ref _statusText, value);
     }
+
+    // ---- Progressive scan preview ----
+    public BitmapSource? ScanPreviewImage
+    {
+        get => _scanPreview;
+        private set => SetProperty(ref _scanPreview, value);
+    }
+
+    public bool IsScanPreviewVisible
+    {
+        get => _isScanPreviewVisible;
+        private set => SetProperty(ref _isScanPreviewVisible, value);
+    }
+
+    // ---- Preview zoom ----
+    public double Zoom
+    {
+        get => _zoom;
+        set => SetProperty(ref _zoom, Math.Clamp(value, 1, 8));
+    }
+
+    // ---- Multi-select ----
+    public ObservableCollection<PageViewModel> SelectedPages { get; } = new();
+
+    public void SetSelectedPages(IEnumerable<PageViewModel> pages)
+    {
+        SelectedPages.Clear();
+        foreach (var p in pages)
+        {
+            SelectedPages.Add(p);
+        }
+        (BatchRotateRightCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (BatchDeleteCommand as RelayCommand)?.RaiseCanExecuteChanged();
+    }
+
+    // ---- Recent projects ----
+    public ObservableCollection<string> RecentProjects { get; } = new();
+
+    // ---- Friendly file-name builder ----
+    public string FileNamePrefix
+    {
+        get => _settings.FileNamePrefix;
+        set { _settings.FileNamePrefix = value; UpdateTemplateFromBuilder(); OnPropertyChanged(); }
+    }
+
+    public bool IncludeDateInName
+    {
+        get => _settings.IncludeDateInName;
+        set { _settings.IncludeDateInName = value; UpdateTemplateFromBuilder(); OnPropertyChanged(); }
+    }
+
+    public bool IncludeCounterInName
+    {
+        get => _settings.IncludeCounterInName;
+        set { _settings.IncludeCounterInName = value; UpdateTemplateFromBuilder(); OnPropertyChanged(); }
+    }
+
+    public int[] CounterDigitOptions { get; } = { 1, 2, 3, 4, 5 };
+
+    public int CounterDigits
+    {
+        get => _settings.CounterDigits;
+        set { _settings.CounterDigits = value; UpdateTemplateFromBuilder(); OnPropertyChanged(); }
+    }
+
+    public string FileNamePreview =>
+        FileNameTemplate.Expand(_settings.FileNameTemplate, 1, DateTime.Now) + ImageFormat.Extension();
 
     // ---- Theme ----
     public bool ThemeIsLight
@@ -207,7 +294,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public OutputFormat ImageFormat
     {
         get => _settings.ImageFormat;
-        set { _settings.ImageFormat = value; OnPropertyChanged(); Save(); }
+        set { _settings.ImageFormat = value; OnPropertyChanged(); OnPropertyChanged(nameof(FileNamePreview)); Save(); }
     }
 
     public string OutputDirectory
@@ -242,6 +329,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand DeleteSelectedCommand { get; }
     public ICommand RotateSelectedRightCommand { get; }
     public ICommand RotateSelectedLeftCommand { get; }
+    public ICommand BatchRotateRightCommand { get; }
+    public ICommand BatchDeleteCommand { get; }
+    public ICommand SaveProjectCommand { get; }
+    public ICommand OpenProjectCommand { get; }
+    public ICommand OpenRecentProjectCommand { get; }
+    public ICommand ZoomInCommand { get; }
+    public ICommand ZoomOutCommand { get; }
+    public ICommand ZoomFitCommand { get; }
 
     private void SetModeManually(ScanMode mode)
     {
@@ -353,7 +448,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            await _hub.ScanAsync(SelectedDevice, profile, raw => ProcessRawPage(raw, profile), _scanCts.Token);
+            await _hub.ScanAsync(SelectedDevice, profile, raw => ProcessRawPage(raw, profile), OnScanPreview, _scanCts.Token);
             int added = Pages.Count - before;
             StatusText = added > 0
                 ? $"Added {added} page{(added == 1 ? "" : "s")}. {Pages.Count} total."
@@ -372,6 +467,26 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             _scanCts.Dispose();
             _scanCts = null;
             IsScanning = false;
+            IsScanPreviewVisible = false;
+            ScanPreviewImage = null;
+        }
+    }
+
+    /// <summary>Receives partial frames from the scanner (background thread) for the live preview.</summary>
+    private void OnScanPreview(Image<Rgba32> frame)
+    {
+        try
+        {
+            var bmp = WpfImage.ToBitmapSource(frame); // frozen; safe to marshal
+            _dispatcher.Invoke(() =>
+            {
+                ScanPreviewImage = bmp;
+                IsScanPreviewVisible = true;
+            });
+        }
+        finally
+        {
+            frame.Dispose(); // we own the frame
         }
     }
 
@@ -392,6 +507,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var vm = new PageViewModel(page, RemovePage) { Number = Pages.Count + 1 };
         Pages.Add(vm);
         SelectedPage = vm;
+        IsScanPreviewVisible = false; // finished page replaces the live preview
     }
 
     private void RemovePage(PageViewModel page)
@@ -428,6 +544,181 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         StatusText = $"Applied edits to all {Pages.Count} pages.";
     }
 
+    private void UpdateTemplateFromBuilder()
+    {
+        var parts = new List<string> { string.IsNullOrWhiteSpace(FileNamePrefix) ? "Scan" : FileNamePrefix.Trim() };
+        if (IncludeDateInName)
+        {
+            parts.Add("{date}");
+        }
+        if (IncludeCounterInName)
+        {
+            int digits = Math.Clamp(CounterDigits, 1, 6);
+            parts.Add("{counter:" + new string('0', digits) + "}");
+        }
+        else if (!IncludeDateInName)
+        {
+            parts.Add("{counter}"); // always keep something unique
+        }
+        _settings.FileNameTemplate = string.Join("_", parts);
+        OnPropertyChanged(nameof(FileNamePreview));
+        Save();
+    }
+
+    private void BatchRotate(int quarterTurns)
+    {
+        foreach (var p in SelectedPages.ToList())
+        {
+            for (int i = 0; i < ((quarterTurns % 4 + 4) % 4); i++)
+            {
+                p.RotateRightCommand.Execute(null);
+            }
+        }
+        StatusText = $"Rotated {SelectedPages.Count} pages.";
+    }
+
+    private void BatchDelete()
+    {
+        foreach (var p in SelectedPages.ToList())
+        {
+            RemovePage(p);
+        }
+        SelectedPages.Clear();
+        StatusText = "Deleted selected pages.";
+    }
+
+    // ---- Projects ----
+    private void SaveProject()
+    {
+        if (!HasPages)
+        {
+            return;
+        }
+        var dialog = new OpenFolderDialog { Title = "Choose an (empty) folder for this project" };
+        if (dialog.ShowDialog() != true)
+        {
+            return;
+        }
+        try
+        {
+            var inputs = Pages.Select(p => new ProjectPageInput(p.CloneOriginal(), p.Page.Dpi, p.GetEdits())).ToList();
+            try
+            {
+                ProjectStore.Save(dialog.FolderName, inputs);
+            }
+            finally
+            {
+                foreach (var i in inputs) i.Original.Dispose();
+            }
+            AddToRecent(dialog.FolderName);
+            StatusText = $"Project saved to {dialog.FolderName}";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Save project failed: {ex.Message}";
+        }
+    }
+
+    private void OpenProject()
+    {
+        var dialog = new OpenFolderDialog { Title = "Open a project folder" };
+        if (dialog.ShowDialog() == true)
+        {
+            OpenProjectFolder(dialog.FolderName);
+        }
+    }
+
+    private void OpenProjectFolder(string? dir)
+    {
+        if (string.IsNullOrWhiteSpace(dir) || !ProjectStore.IsProject(dir))
+        {
+            StatusText = "That folder isn't a project.";
+            return;
+        }
+        try
+        {
+            var data = ProjectStore.Load(dir);
+            LoadPages(data);
+            AddToRecent(dir);
+            StatusText = $"Opened project ({Pages.Count} pages) from {dir}";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Open project failed: {ex.Message}";
+        }
+    }
+
+    private void LoadPages(List<ProjectPageData> data)
+    {
+        ClearAll();
+        foreach (var d in data)
+        {
+            var page = new ScannedPage(d.Image, d.Dpi);
+            var vm = new PageViewModel(page, RemovePage, d.Edits) { Number = Pages.Count + 1 };
+            Pages.Add(vm);
+        }
+        SelectedPage = Pages.FirstOrDefault();
+    }
+
+    private void AddToRecent(string dir)
+    {
+        RecentProjects.Remove(dir);
+        RecentProjects.Insert(0, dir);
+        while (RecentProjects.Count > 8)
+        {
+            RecentProjects.RemoveAt(RecentProjects.Count - 1);
+        }
+        _settings.RecentProjects = RecentProjects.ToList();
+        Save();
+    }
+
+    private string SessionDir => Path.Combine(_store.DataDirectory, "Session");
+
+    /// <summary>Persists the current pages+edits so the next launch restores them automatically.</summary>
+    public void SaveSession()
+    {
+        try
+        {
+            if (!HasPages)
+            {
+                if (Directory.Exists(SessionDir)) Directory.Delete(SessionDir, recursive: true);
+                return;
+            }
+            var inputs = Pages.Select(p => new ProjectPageInput(p.CloneOriginal(), p.Page.Dpi, p.GetEdits())).ToList();
+            try
+            {
+                ProjectStore.Save(SessionDir, inputs);
+            }
+            finally
+            {
+                foreach (var i in inputs) i.Original.Dispose();
+            }
+        }
+        catch
+        {
+            // auto-save is best-effort
+        }
+    }
+
+    private void TryRestoreSession()
+    {
+        try
+        {
+            if (ProjectStore.IsProject(SessionDir))
+            {
+                LoadPages(ProjectStore.Load(SessionDir));
+                if (HasPages)
+                {
+                    StatusText = $"Restored last session ({Pages.Count} pages).";
+                }
+            }
+        }
+        catch
+        {
+            // ignore a corrupt session
+        }
+    }
+
     private void MoveSelection(int delta)
     {
         if (Pages.Count == 0)
@@ -459,14 +750,25 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             Multiselect = true,
             Filter = "Images|*.jpg;*.jpeg;*.png;*.tif;*.tiff;*.bmp|All files|*.*"
         };
-        if (dialog.ShowDialog() != true)
+        if (dialog.ShowDialog() == true)
         {
-            return;
+            ImportPaths(dialog.FileNames);
         }
+    }
 
+    private static readonly HashSet<string> ImportableExtensions =
+        new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp", ".gif" };
+
+    /// <summary>Imports image files (used by Open images and by drag-&-drop onto the window).</summary>
+    public void ImportPaths(IEnumerable<string> paths)
+    {
         int added = 0;
-        foreach (var path in dialog.FileNames)
+        foreach (var path in paths)
         {
+            if (!ImportableExtensions.Contains(Path.GetExtension(path)))
+            {
+                continue;
+            }
             try
             {
                 var image = Image.Load<Rgba32>(path);
@@ -485,6 +787,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         {
             StatusText = $"Imported {added} image{(added == 1 ? "" : "s")}.";
         }
+    }
+
+    /// <summary>Moves a page to a new index (drag-to-reorder in the filmstrip).</summary>
+    public void MovePage(PageViewModel page, int newIndex)
+    {
+        int oldIndex = Pages.IndexOf(page);
+        if (oldIndex < 0)
+        {
+            return;
+        }
+        newIndex = Math.Clamp(newIndex, 0, Pages.Count - 1);
+        if (newIndex == oldIndex)
+        {
+            return;
+        }
+        Pages.Move(oldIndex, newIndex);
+        Renumber();
+        SelectedPage = page;
     }
 
     private void SaveImages()
@@ -593,6 +913,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         (SavePdfCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (ApplyEditsToAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (DeleteSelectedCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (SaveProjectCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private void Save()

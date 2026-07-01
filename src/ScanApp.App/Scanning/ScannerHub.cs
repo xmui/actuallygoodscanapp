@@ -1,4 +1,6 @@
 using ScanApp.Core.Models;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace ScanApp.App.Scanning;
 
@@ -39,34 +41,71 @@ public sealed class ScannerHub : IDisposable
     /// </summary>
     public IReadOnlyList<ScannerDevice> GetRealDevices()
     {
-        var all = new List<ScannerDevice>();
-        foreach (var backend in _backends)
+        var twain = DevicesFrom("TWAIN");
+        var wia = DevicesFrom("WIA");
+
+        // WIA enumerates *connected* devices; TWAIN advertises *installed drivers* (which may be for an
+        // unplugged scanner). So when WIA is available, treat its set as ground truth for "connected":
+        // keep WIA devices, and keep a TWAIN source only if a connected WIA twin exists (preferring the
+        // TWAIN entry for its richer transfer). Best-effort — documented caveat.
+        bool haveWia = wia.Count > 0;
+        var wiaKeys = wia.Select(d => NormalizeName(d.Name)).ToList();
+
+        bool Connected(ScannerDevice d)
         {
-            if (ReferenceEquals(backend, _mock))
+            if (!haveWia)
             {
-                continue;
+                return true; // no way to tell; show everything
             }
-            try
+            if (d.Backend == "WIA")
             {
-                all.AddRange(backend.GetDevices());
+                return true;
             }
-            catch
-            {
-                // ignore a misbehaving backend
-            }
+            var k = NormalizeName(d.Name);
+            return wiaKeys.Any(wk => FuzzyMatch(k, wk));
         }
 
-        // Dedupe by normalized name, preferring TWAIN over WIA.
-        var byKey = new Dictionary<string, ScannerDevice>();
-        foreach (var d in all.OrderBy(d => d.Backend == "TWAIN" ? 0 : 1))
+        var candidates = twain.Concat(wia).Where(Connected)
+            .OrderBy(d => d.Backend == "TWAIN" ? 0 : 1) // prefer TWAIN when deduping
+            .ToList();
+
+        // Dedupe: drop a device that fuzzily matches one already kept.
+        var kept = new List<ScannerDevice>();
+        foreach (var d in candidates)
         {
-            var key = NormalizeName(d.Name);
-            if (!byKey.ContainsKey(key))
+            var k = NormalizeName(d.Name);
+            if (!kept.Any(x => FuzzyMatch(NormalizeName(x.Name), k)))
             {
-                byKey[key] = d;
+                kept.Add(d);
             }
         }
-        return byKey.Values.ToList();
+        return kept;
+    }
+
+    private List<ScannerDevice> DevicesFrom(string backendName)
+    {
+        var backend = _backends.FirstOrDefault(b => b.Backend == backendName);
+        if (backend is null)
+        {
+            return new List<ScannerDevice>();
+        }
+        try
+        {
+            return backend.GetDevices().ToList();
+        }
+        catch
+        {
+            return new List<ScannerDevice>();
+        }
+    }
+
+    private static bool FuzzyMatch(string a, string b)
+    {
+        if (a.Length < 4 || b.Length < 4)
+        {
+            return a == b;
+        }
+        return a == b || a.Contains(b) || b.Contains(a);
     }
 
     /// <summary>The demo devices, shown only when no real scanner is connected.</summary>
@@ -89,8 +128,8 @@ public sealed class ScannerHub : IDisposable
     public ScannerCapabilities QueryCapabilities(ScannerDevice device) =>
         Resolve(device).QueryCapabilities(device);
 
-    public Task ScanAsync(ScannerDevice device, ScanProfile profile, Action<RawScan> onPage, CancellationToken cancellationToken) =>
-        Resolve(device).ScanAsync(device, profile, onPage, cancellationToken);
+    public Task ScanAsync(ScannerDevice device, ScanProfile profile, Action<RawScan> onPage, Action<Image<Rgba32>>? onPreview, CancellationToken cancellationToken) =>
+        Resolve(device).ScanAsync(device, profile, onPage, onPreview, cancellationToken);
 
     private IScannerService Resolve(ScannerDevice device) =>
         _backends.FirstOrDefault(b => b.Backend == device.Backend) ?? _mock;

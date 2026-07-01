@@ -81,7 +81,7 @@ public sealed class WiaScannerService : IScannerService
         SupportsDeskew = false
     };
 
-    public Task ScanAsync(ScannerDevice device, ScanProfile profile, Action<RawScan> onPage, CancellationToken cancellationToken) =>
+    public Task ScanAsync(ScannerDevice device, ScanProfile profile, Action<RawScan> onPage, Action<Image<Rgba32>>? onPreview, CancellationToken cancellationToken) =>
         Task.Run(() => ScanCore(device, profile, onPage, cancellationToken), cancellationToken);
 
     private void ScanCore(ScannerDevice device, ScanProfile profile, Action<RawScan> onPage, CancellationToken cancellationToken)

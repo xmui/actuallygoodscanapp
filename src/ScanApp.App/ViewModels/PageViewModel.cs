@@ -34,8 +34,17 @@ public sealed class PageViewModel : ObservableObject, IDisposable
     private int _contrast;
     private bool _removeDust;
     private bool _autoLevel = PageEdits.Defaults.AutoLevel;        // on by default
+    private bool _documentCleanup;
+    private bool _blackAndWhite;
     private bool _recomputing;
     private bool _recomputePending;
+
+    /// <summary>Constructs a page and restores a saved edit state (used when opening a project).</summary>
+    public PageViewModel(ScannedPage page, Action<PageViewModel> onDelete, PageEdits edits)
+        : this(page, onDelete)
+    {
+        ApplyEdits(edits);
+    }
 
     public PageViewModel(ScannedPage page, Action<PageViewModel> onDelete)
     {
@@ -126,6 +135,21 @@ public sealed class PageViewModel : ObservableObject, IDisposable
         set { if (SetProperty(ref _autoLevel, value)) RecomputeEdits(); }
     }
 
+    public bool DocumentCleanup
+    {
+        get => _documentCleanup;
+        set { if (SetProperty(ref _documentCleanup, value)) RecomputeEdits(); }
+    }
+
+    public bool BlackAndWhite
+    {
+        get => _blackAndWhite;
+        set { if (SetProperty(ref _blackAndWhite, value)) RecomputeEdits(); }
+    }
+
+    /// <summary>A clone of the pristine original (for saving into a project).</summary>
+    public Image<Rgba32> CloneOriginal() => _original.Clone();
+
     public ICommand RotateLeftCommand { get; }
     public ICommand RotateRightCommand { get; }
     public ICommand Rotate180Command { get; }
@@ -143,7 +167,9 @@ public sealed class PageViewModel : ObservableObject, IDisposable
         Brightness = _brightness,
         Contrast = _contrast,
         RemoveDust = _removeDust,
-        AutoLevel = _autoLevel
+        AutoLevel = _autoLevel,
+        DocumentCleanup = _documentCleanup,
+        BlackAndWhite = _blackAndWhite
     };
 
     /// <summary>Applies an edit state and recomputes the preview.</summary>
@@ -156,10 +182,13 @@ public sealed class PageViewModel : ObservableObject, IDisposable
         _contrast = e.Contrast;
         _removeDust = e.RemoveDust;
         _autoLevel = e.AutoLevel;
+        _documentCleanup = e.DocumentCleanup;
+        _blackAndWhite = e.BlackAndWhite;
         foreach (var name in new[]
         {
             nameof(CropRect), nameof(IsCropActive), nameof(RotationDegrees),
-            nameof(Brightness), nameof(Contrast), nameof(RemoveDust), nameof(AutoLevel)
+            nameof(Brightness), nameof(Contrast), nameof(RemoveDust), nameof(AutoLevel),
+            nameof(DocumentCleanup), nameof(BlackAndWhite)
         })
         {
             OnPropertyChanged(name);
@@ -202,7 +231,8 @@ public sealed class PageViewModel : ObservableObject, IDisposable
     private void ResetEdits()
     {
         _brightness = 0; _contrast = 0; _removeDust = false; _autoLevel = false; _rotationDegrees = 0;
-        foreach (var name in new[] { nameof(Brightness), nameof(Contrast), nameof(RemoveDust), nameof(AutoLevel), nameof(RotationDegrees) })
+        _documentCleanup = false; _blackAndWhite = false;
+        foreach (var name in new[] { nameof(Brightness), nameof(Contrast), nameof(RemoveDust), nameof(AutoLevel), nameof(RotationDegrees), nameof(DocumentCleanup), nameof(BlackAndWhite) })
         {
             OnPropertyChanged(name);
         }
@@ -220,7 +250,7 @@ public sealed class PageViewModel : ObservableObject, IDisposable
         _recomputing = true;
 
         int brightness = _brightness, contrast = _contrast;
-        bool dust = _removeDust, auto = _autoLevel;
+        bool dust = _removeDust, auto = _autoLevel, clean = _documentCleanup, bw = _blackAndWhite;
         double rot = _rotationDegrees;
 
         Task.Run(() =>
@@ -229,6 +259,7 @@ public sealed class PageViewModel : ObservableObject, IDisposable
             if (dust) DustRemovalProcessor.Remove(img, 60);
             if (auto) Adjustments.AutoLevels(img);
             Adjustments.Apply(img, brightness, contrast);
+            if (clean) ScanApp.Core.Imaging.DocumentCleanup.Apply(img, bw);
 
             var thumb = WpfImage.ToThumbnail(img);
             var preview = WpfImage.ToBitmapSource(img);

@@ -35,18 +35,44 @@ public sealed class MockScannerService : IScannerService
         SupportsDeskew = false
     };
 
-    public async Task ScanAsync(ScannerDevice device, ScanProfile profile, Action<RawScan> onPage, CancellationToken cancellationToken)
+    public async Task ScanAsync(ScannerDevice device, ScanProfile profile, Action<RawScan> onPage, Action<Image<Rgba32>>? onPreview, CancellationToken cancellationToken)
     {
         // Sheetfed streams several pages; flatbed yields a single page per press.
         int pageCount = profile.Mode == ScanMode.Sheetfed ? 3 : 1;
         for (int i = 0; i < pageCount; i++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            await Task.Delay(profile.Mode == ScanMode.Sheetfed ? 450 : 250, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(profile.Mode == ScanMode.Sheetfed ? 250 : 150, cancellationToken).ConfigureAwait(false);
 
             bool multi = profile.Mode == ScanMode.BulkFlatbed && profile.SplitMultiplePhotos;
             var raw = multi ? RenderMultiPhoto(profile.Dpi) : RenderDocument(profile.Dpi, i + 1);
+
+            await RevealProgressively(raw, onPreview, cancellationToken).ConfigureAwait(false);
             onPage(new RawScan { Image = raw, Dpi = profile.Dpi, DriverDid = DriverCapabilities.None });
+        }
+    }
+
+    /// <summary>Simulates a scanner painting the image top-to-bottom, for the live preview.</summary>
+    private static async Task RevealProgressively(Image<Rgba32> full, Action<Image<Rgba32>>? onPreview, CancellationToken ct)
+    {
+        if (onPreview is null)
+        {
+            return;
+        }
+        const int bands = 8;
+        var unscanned = new Rgba32(22, 23, 30, 255);
+        for (int k = 1; k <= bands; k++)
+        {
+            ct.ThrowIfCancellationRequested();
+            int revealed = full.Height * k / bands;
+            var frame = full.Clone();
+            if (revealed < full.Height)
+            {
+                frame.Mutate(c => c.Fill(unscanned,
+                    new RectangularPolygon(0, revealed, full.Width, full.Height - revealed)));
+            }
+            onPreview(frame); // caller disposes
+            await Task.Delay(80, ct).ConfigureAwait(false);
         }
     }
 

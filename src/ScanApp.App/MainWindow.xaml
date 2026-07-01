@@ -5,7 +5,8 @@
         Title="Actually Good Scanning App" Height="780" Width="1180"
         MinHeight="600" MinWidth="940"
         Background="{DynamicResource Bg}"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        AllowDrop="True" DragOver="OnDragOver" Drop="OnFilesDropped">
 
     <Window.InputBindings>
         <!-- Fast scanning + editing shortcuts. -->

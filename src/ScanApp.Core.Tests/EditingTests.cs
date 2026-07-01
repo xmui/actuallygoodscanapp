@@ -106,6 +106,29 @@ public class EditingTests
     }
 
     [Fact]
+    public void DocumentCleanup_WhitensBackground()
+    {
+        // Dingy grey background (180) with a dark text block.
+        using var img = new Image<Rgba32>(200, 200, new Rgba32(180, 180, 180, 255));
+        img.ProcessPixelRows(accessor =>
+        {
+            for (int y = 60; y < 140; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (int x = 60; x < 140; x++) row[x] = new Rgba32(50, 50, 50, 255);
+            }
+        });
+
+        DocumentCleanup.Apply(img, blackAndWhite: false);
+
+        img.ProcessPixelRows(accessor =>
+        {
+            var bg = accessor.GetRowSpan(5)[5];
+            Assert.True(bg.R > 240, $"background should be whitened, got {bg.R}");
+        });
+    }
+
+    [Fact]
     public void CropNormalized_ProducesExpectedRegion()
     {
         using var img = new Image<Rgba32>(400, 200, TestImages.White);
