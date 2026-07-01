@@ -114,6 +114,26 @@ public class EditingTests
         Assert.Equal(100, cropped.Height);
     }
 
+    [Theory]
+    [InlineData(7.0)]
+    [InlineData(-12.0)]
+    public void RotateKeepSize_PreservesDimensions(double degrees)
+    {
+        using var img = TestImages.WhiteWith(500, 300, new Rectangle(100, 80, 300, 140));
+        using var rotated = RotationOps.RotateKeepSize(img, degrees);
+        Assert.Equal(500, rotated.Width);
+        Assert.Equal(300, rotated.Height);
+    }
+
+    [Fact]
+    public void RotateKeepSize_TinyAngleIsNoOp()
+    {
+        using var img = TestImages.WhiteWith(120, 90, new Rectangle(10, 10, 40, 30));
+        using var rotated = RotationOps.RotateKeepSize(img, 0.01);
+        Assert.Equal(120, rotated.Width);
+        Assert.Equal(90, rotated.Height);
+    }
+
     [Fact]
     public void NormalizedRect_FullReturnsClone()
     {

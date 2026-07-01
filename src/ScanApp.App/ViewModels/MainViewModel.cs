@@ -63,6 +63,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         OpenOutputFolderCommand = new RelayCommand(OpenOutputFolder);
         OpenImagesCommand = new RelayCommand(OpenImages);
         SetAccentCommand = new RelayCommand(p => SetAccent(p as string));
+        ApplyEditsToAllCommand = new RelayCommand(ApplyEditsToAll, () => SelectedPage is not null && Pages.Count > 1);
+        NextPageCommand = new RelayCommand(() => MoveSelection(1));
+        PrevPageCommand = new RelayCommand(() => MoveSelection(-1));
+        DeleteSelectedCommand = new RelayCommand(() => { if (SelectedPage is not null) RemovePage(SelectedPage); }, () => SelectedPage is not null);
+        RotateSelectedRightCommand = new RelayCommand(() => SelectedPage?.RotateRightCommand.Execute(null));
+        RotateSelectedLeftCommand = new RelayCommand(() => SelectedPage?.RotateLeftCommand.Execute(null));
 
         RefreshDevices();
     }
@@ -107,7 +113,14 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public PageViewModel? SelectedPage
     {
         get => _selectedPage;
-        set => SetProperty(ref _selectedPage, value);
+        set
+        {
+            if (SetProperty(ref _selectedPage, value))
+            {
+                (ApplyEditsToAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
+                (DeleteSelectedCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            }
+        }
     }
 
     public bool IsScanning
@@ -223,6 +236,12 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand OpenOutputFolderCommand { get; }
     public ICommand OpenImagesCommand { get; }
     public ICommand SetAccentCommand { get; }
+    public ICommand ApplyEditsToAllCommand { get; }
+    public ICommand NextPageCommand { get; }
+    public ICommand PrevPageCommand { get; }
+    public ICommand DeleteSelectedCommand { get; }
+    public ICommand RotateSelectedRightCommand { get; }
+    public ICommand RotateSelectedLeftCommand { get; }
 
     private void SetModeManually(ScanMode mode)
     {
@@ -392,6 +411,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    private void ApplyEditsToAll()
+    {
+        if (SelectedPage is null)
+        {
+            return;
+        }
+        var edits = SelectedPage.GetEdits();
+        foreach (var p in Pages)
+        {
+            if (!ReferenceEquals(p, SelectedPage))
+            {
+                p.ApplyEdits(edits);
+            }
+        }
+        StatusText = $"Applied edits to all {Pages.Count} pages.";
+    }
+
+    private void MoveSelection(int delta)
+    {
+        if (Pages.Count == 0)
+        {
+            return;
+        }
+        int idx = SelectedPage is null ? 0 : Pages.IndexOf(SelectedPage);
+        idx = Math.Clamp(idx + delta, 0, Pages.Count - 1);
+        SelectedPage = Pages[idx];
+    }
+
     private void ClearAll()
     {
         foreach (var p in Pages)
@@ -544,6 +591,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         (ClearAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (SaveImagesCommand as RelayCommand)?.RaiseCanExecuteChanged();
         (SavePdfCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (ApplyEditsToAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        (DeleteSelectedCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
     private void Save()
