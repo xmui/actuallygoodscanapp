@@ -17,6 +17,7 @@ public class ExportAndNamingTests
     [InlineData(OutputFormat.Jpeg, ".jpg")]
     [InlineData(OutputFormat.Png, ".png")]
     [InlineData(OutputFormat.Tiff, ".tif")]
+    [InlineData(OutputFormat.Webp, ".webp")]
     public void ImageExporter_WritesLoadableFile(OutputFormat format, string ext)
     {
         using var page = MakePage();

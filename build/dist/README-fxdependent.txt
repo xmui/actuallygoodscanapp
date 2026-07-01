@@ -1,4 +1,4 @@
-Actually Good Scan — portable build (FRAMEWORK-DEPENDENT, tiny)
+Actually Good Scanning App — portable build (FRAMEWORK-DEPENDENT, tiny)
 ==============================================================
 
 THIS BUILD NEEDS THE .NET 8 DESKTOP RUNTIME (one-time, free)

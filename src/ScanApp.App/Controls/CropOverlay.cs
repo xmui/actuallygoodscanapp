@@ -4,6 +4,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using ScanApp.App.Infrastructure;
 using ScanApp.Core.Models;
 
 namespace ScanApp.App.Controls;
@@ -20,11 +21,17 @@ public sealed class CropOverlay : Canvas
     private readonly Rectangle _selection;
     private readonly Thumb[] _corners = new Thumb[4]; // TL, TR, BL, BR
     private Rect _selPx; // current selection in control coordinates
+    private static readonly Cursor? RotateCursor = CursorFactory.CreateRotate();
 
     public CropOverlay()
     {
         ClipToBounds = true;
         Background = Brushes.Transparent;
+        // The empty area around the crop box rotates (straighten); the box body moves, handles resize.
+        Cursor = RotateCursor ?? Cursors.Cross;
+        MouseLeftButtonDown += OnRotateDown;
+        MouseMove += OnRotateMove;
+        MouseLeftButtonUp += OnRotateUp;
 
         _selection = new Rectangle
         {
@@ -96,6 +103,57 @@ public sealed class CropOverlay : Canvas
     {
         get => (bool)GetValue(IsActiveProperty);
         set => SetValue(IsActiveProperty, value);
+    }
+
+    public static readonly DependencyProperty RotationAngleProperty = DependencyProperty.Register(
+        nameof(RotationAngle), typeof(double), typeof(CropOverlay),
+        new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+
+    /// <summary>Straighten angle in degrees, driven by dragging the area around the crop box.</summary>
+    public double RotationAngle
+    {
+        get => (double)GetValue(RotationAngleProperty);
+        set => SetValue(RotationAngleProperty, value);
+    }
+
+    private bool _rotating;
+    private double _rotateStartPointerAngle;
+    private double _rotateBaseValue;
+
+    private void OnRotateDown(object sender, MouseButtonEventArgs e)
+    {
+        // Only the empty background (not the selection/handles) starts a rotate gesture.
+        if (!IsActive || !ReferenceEquals(e.OriginalSource, this))
+        {
+            return;
+        }
+        _rotating = true;
+        _rotateStartPointerAngle = PointerAngle(e.GetPosition(this));
+        _rotateBaseValue = RotationAngle;
+        CaptureMouse();
+    }
+
+    private void OnRotateMove(object sender, MouseEventArgs e)
+    {
+        if (!_rotating)
+        {
+            return;
+        }
+        double delta = PointerAngle(e.GetPosition(this)) - _rotateStartPointerAngle;
+        double next = Math.Clamp(_rotateBaseValue + delta, -45, 45);
+        SetCurrentValue(RotationAngleProperty, Math.Round(next, 1));
+    }
+
+    private void OnRotateUp(object sender, MouseButtonEventArgs e)
+    {
+        _rotating = false;
+        ReleaseMouseCapture();
+    }
+
+    private double PointerAngle(Point p)
+    {
+        var center = new Point(_selPx.X + (_selPx.Width / 2), _selPx.Y + (_selPx.Height / 2));
+        return Math.Atan2(p.Y - center.Y, p.X - center.X) * 180.0 / Math.PI;
     }
 
     private static void OnCropChanged(DependencyObject d, DependencyPropertyChangedEventArgs e) =>

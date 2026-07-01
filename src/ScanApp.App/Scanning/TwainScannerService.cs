@@ -96,9 +96,10 @@ public sealed class TwainScannerService : IScannerService
         }
     }
 
-    public Task ScanAsync(ScannerDevice device, ScanProfile profile, Action<RawScan> onPage, CancellationToken cancellationToken)
+    public Task ScanAsync(ScannerDevice device, ScanProfile profile, Action<RawScan> onPage, Action<Image<Rgba32>>? onPreview, CancellationToken cancellationToken)
     {
-        // The acquisition itself drives NTwain's pump; run it off the UI thread and await completion.
+        // Native whole-image transfer: no partial frames (onPreview unused). Progressive memory
+        // transfer is a future enhancement; keeping native transfer avoids regressing working drivers.
         return Task.Run(() => ScanCore(device, profile, onPage, cancellationToken), cancellationToken);
     }
 

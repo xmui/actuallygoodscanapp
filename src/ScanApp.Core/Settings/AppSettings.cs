@@ -30,6 +30,15 @@ public sealed class AppSettings
 
     public string FileNameTemplate { get; set; } = Naming.FileNameTemplate.Default;
 
+    // ---- Friendly file-name builder (composes FileNameTemplate; no syntax for the user) ----
+    public string FileNamePrefix { get; set; } = "Scan";
+    public bool IncludeDateInName { get; set; } = true;
+    public bool IncludeCounterInName { get; set; } = true;
+    public int CounterDigits { get; set; } = 3;
+
+    /// <summary>Recently opened project folders (most-recent first).</summary>
+    public List<string> RecentProjects { get; set; } = new();
+
     public OutputFormat ImageFormat { get; set; } = OutputFormat.Jpeg;
 
     public int JpegQuality { get; set; } = 90;

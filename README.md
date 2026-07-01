@@ -1,4 +1,4 @@
-# Actually Good Scan
+# Actually Good Scanning App
 
 A fast, intuitive Windows scanning app for flatbed and sheetfed scanners. Two modes, live previews
 as you scan, automatic crop + straighten, and one-click saving to JPEG/PNG/TIFF or a multi-page PDF.

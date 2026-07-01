@@ -1,4 +1,6 @@
 using ScanApp.Core.Models;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace ScanApp.App.Scanning;
 
@@ -34,10 +36,14 @@ public interface IScannerService : IDisposable
     /// <summary>
     /// Scans using the device and profile, invoking <paramref name="onPage"/> for each raw page as
     /// it is acquired. For flatbed this yields a single page; for the ADF it streams every fed sheet.
+    /// <paramref name="onPreview"/> (optional) receives partial frames as the page is acquired for a
+    /// live, VueScan-style progressive preview; the callee owns each frame and the caller must dispose
+    /// it. Backends that can't stream partial data simply never call it.
     /// </summary>
     Task ScanAsync(
         ScannerDevice device,
         ScanProfile profile,
         Action<RawScan> onPage,
+        Action<Image<Rgba32>>? onPreview,
         CancellationToken cancellationToken);
 }

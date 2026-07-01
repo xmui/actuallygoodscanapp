@@ -106,12 +106,55 @@ public class EditingTests
     }
 
     [Fact]
+    public void DocumentCleanup_WhitensBackground()
+    {
+        // Dingy grey background (180) with a dark text block.
+        using var img = new Image<Rgba32>(200, 200, new Rgba32(180, 180, 180, 255));
+        img.ProcessPixelRows(accessor =>
+        {
+            for (int y = 60; y < 140; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (int x = 60; x < 140; x++) row[x] = new Rgba32(50, 50, 50, 255);
+            }
+        });
+
+        DocumentCleanup.Apply(img, blackAndWhite: false);
+
+        img.ProcessPixelRows(accessor =>
+        {
+            var bg = accessor.GetRowSpan(5)[5];
+            Assert.True(bg.R > 240, $"background should be whitened, got {bg.R}");
+        });
+    }
+
+    [Fact]
     public void CropNormalized_ProducesExpectedRegion()
     {
         using var img = new Image<Rgba32>(400, 200, TestImages.White);
         using var cropped = PageProcessor.CropNormalized(img, new NormalizedRect(0.25, 0.5, 0.5, 0.5));
         Assert.Equal(200, cropped.Width);
         Assert.Equal(100, cropped.Height);
+    }
+
+    [Theory]
+    [InlineData(7.0)]
+    [InlineData(-12.0)]
+    public void RotateKeepSize_PreservesDimensions(double degrees)
+    {
+        using var img = TestImages.WhiteWith(500, 300, new Rectangle(100, 80, 300, 140));
+        using var rotated = RotationOps.RotateKeepSize(img, degrees);
+        Assert.Equal(500, rotated.Width);
+        Assert.Equal(300, rotated.Height);
+    }
+
+    [Fact]
+    public void RotateKeepSize_TinyAngleIsNoOp()
+    {
+        using var img = TestImages.WhiteWith(120, 90, new Rectangle(10, 10, 40, 30));
+        using var rotated = RotationOps.RotateKeepSize(img, 0.01);
+        Assert.Equal(120, rotated.Width);
+        Assert.Equal(90, rotated.Height);
     }
 
     [Fact]

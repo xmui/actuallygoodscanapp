@@ -1,4 +1,4 @@
-Actually Good Scan — portable build (SELF-CONTAINED, no .NET needed)
+Actually Good Scanning App — portable build (SELF-CONTAINED, no .NET needed)
 ===================================================================
 
 HOW TO RUN

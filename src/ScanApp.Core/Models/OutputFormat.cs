@@ -5,7 +5,8 @@ public enum OutputFormat
 {
     Jpeg,
     Png,
-    Tiff
+    Tiff,
+    Webp
 }
 
 public static class OutputFormatExtensions
@@ -15,6 +16,7 @@ public static class OutputFormatExtensions
         OutputFormat.Jpeg => ".jpg",
         OutputFormat.Png => ".png",
         OutputFormat.Tiff => ".tif",
+        OutputFormat.Webp => ".webp",
         _ => ".jpg"
     };
 }
