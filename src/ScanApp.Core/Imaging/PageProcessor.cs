@@ -95,6 +95,22 @@ public static class PageProcessor
         page.ReplaceImage(rotated);
     }
 
+    /// <summary>
+    /// Returns a cropped clone for the given normalized rectangle, leaving the source untouched
+    /// (used for non-destructive crop applied only at export). Returns a full clone when the rect is
+    /// the whole image.
+    /// </summary>
+    public static Image<Rgba32> CropNormalized(Image<Rgba32> source, NormalizedRect crop)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        if (crop.IsFull)
+        {
+            return source.Clone();
+        }
+        var r = crop.ToPixels(source.Width, source.Height);
+        return source.Clone(c => c.Crop(r));
+    }
+
     /// <summary>Applies a user-supplied crop rectangle (page coordinates), clamped to bounds.</summary>
     public static void ApplyManualCrop(ScannedPage page, Rectangle rect)
     {
