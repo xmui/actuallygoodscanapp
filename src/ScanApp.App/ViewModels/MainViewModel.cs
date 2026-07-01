@@ -452,7 +452,9 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             {
                 string baseName = FileNameTemplate.Expand(FileNameTemplateText, counter, now);
                 string path = FileNameTemplate.ResolveUniquePath(dir, baseName, ext, File.Exists);
-                ImageExporter.Save(p.Page, path, ImageFormat, _settings.JpegQuality);
+                // Apply the per-page crop non-destructively at export time.
+                using var export = new ScannedPage(p.RenderForExport(), p.Page.Dpi);
+                ImageExporter.Save(export, path, ImageFormat, _settings.JpegQuality);
                 counter++;
             }
             StatusText = $"Saved {Pages.Count} image{(Pages.Count == 1 ? "" : "s")} to {dir}";
@@ -470,7 +472,15 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             string dir = EnsureOutputDir();
             string baseName = FileNameTemplate.Expand(FileNameTemplateText, 1, DateTime.Now);
             string path = FileNameTemplate.ResolveUniquePath(dir, baseName, ".pdf", File.Exists);
-            PdfExporter.Save(Pages.Select(p => p.Page).ToList(), path, _settings.JpegQuality);
+            var exportPages = Pages.Select(p => new ScannedPage(p.RenderForExport(), p.Page.Dpi)).ToList();
+            try
+            {
+                PdfExporter.Save(exportPages, path, _settings.JpegQuality);
+            }
+            finally
+            {
+                foreach (var ep in exportPages) ep.Dispose();
+            }
             StatusText = $"Saved PDF: {path}";
         }
         catch (Exception ex)

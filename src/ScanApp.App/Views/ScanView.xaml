@@ -1,6 +1,7 @@
 <UserControl x:Class="ScanApp.App.Views.ScanView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:ScanApp.App.Controls">
     <UserControl.Resources>
         <!-- Segmented mode toggle: highlights the active mode. -->
         <Style x:Key="ModeButton" TargetType="Button" BasedOn="{StaticResource GhostButton}">
@@ -127,6 +128,11 @@
                                Visibility="{Binding SelectedPage, Converter={StaticResource NullToVis}, ConverterParameter=invert}" />
                     <Image Source="{Binding SelectedPage.Preview}" Stretch="Uniform" Margin="18"
                            RenderOptions.BitmapScalingMode="HighQuality" />
+                    <controls:CropOverlay Margin="18"
+                                          ImagePixelWidth="{Binding SelectedPage.ImagePixelWidth}"
+                                          ImagePixelHeight="{Binding SelectedPage.ImagePixelHeight}"
+                                          IsActive="{Binding SelectedPage.IsCropActive}"
+                                          CropRect="{Binding SelectedPage.CropRect, Mode=TwoWay}" />
                 </Grid>
             </Border>
 
@@ -188,6 +194,28 @@
                         <Button Content="Save images" Command="{Binding SaveImagesCommand}" Style="{StaticResource PrimaryButton}" Margin="0,0,0,8" />
                         <Button Content="Save as multi-page PDF" Command="{Binding SavePdfCommand}" Style="{StaticResource GhostButton}" Margin="0,0,0,8" />
                         <Button Content="Open output folder" Command="{Binding OpenOutputFolderCommand}" Style="{StaticResource GhostButton}" />
+
+                        <!-- Edit selected page -->
+                        <StackPanel Visibility="{Binding SelectedPage, Converter={StaticResource NullToVis}}">
+                            <TextBlock Text="Edit page" FontWeight="SemiBold" Margin="0,20,0,6" />
+                            <CheckBox Content="Show crop box" IsChecked="{Binding SelectedPage.IsCropActive}" Margin="0,2" />
+                            <StackPanel Orientation="Horizontal" Margin="0,4,0,4">
+                                <Button Content="Auto box" Command="{Binding SelectedPage.AutoCropBoxCommand}"
+                                        Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12" Margin="0,0,6,0" />
+                                <Button Content="Clear crop" Command="{Binding SelectedPage.ClearCropCommand}"
+                                        Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12" />
+                            </StackPanel>
+                            <TextBlock Text="Brightness" Foreground="{StaticResource TextDim}" FontSize="12" Margin="0,6,0,0" />
+                            <Slider Minimum="-100" Maximum="100" Value="{Binding SelectedPage.Brightness}"
+                                    TickFrequency="10" IsSnapToTickEnabled="True" />
+                            <TextBlock Text="Contrast" Foreground="{StaticResource TextDim}" FontSize="12" Margin="0,4,0,0" />
+                            <Slider Minimum="-100" Maximum="100" Value="{Binding SelectedPage.Contrast}"
+                                    TickFrequency="10" IsSnapToTickEnabled="True" />
+                            <CheckBox Content="Remove dust &amp; hair" IsChecked="{Binding SelectedPage.RemoveDust}" Margin="0,6,0,2" />
+                            <CheckBox Content="Auto levels" IsChecked="{Binding SelectedPage.AutoLevel}" Margin="0,2" />
+                            <Button Content="Reset edits" Command="{Binding SelectedPage.ResetEditsCommand}"
+                                    Style="{StaticResource GhostButton}" Padding="10,5" FontSize="12" Margin="0,6,0,0" HorizontalAlignment="Left" />
+                        </StackPanel>
 
                         <!-- Theme -->
                         <TextBlock Text="Theme" FontWeight="SemiBold" Margin="0,20,0,6" />
