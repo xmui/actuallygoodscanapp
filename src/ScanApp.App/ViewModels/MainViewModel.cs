@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
@@ -13,16 +14,26 @@ using ScanApp.Core.Models;
 using ScanApp.Core.Naming;
 using ScanApp.Core.Projects;
 using ScanApp.Core.Settings;
+using ScanApp.Services.Editing;
+using ScanApp.Services.Export;
+using ScanApp.Services.Presets;
+using ScanApp.Services.Projects;
+using ScanApp.Services.Settings;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
 namespace ScanApp.App.ViewModels;
 
-/// <summary>Root view model: drives the scan session, editing and saving.</summary>
+/// <summary>Root view model: coordinates the scan session over injected domain services.</summary>
 public sealed class MainViewModel : ObservableObject, IDisposable
 {
-    private readonly ScannerHub _hub = new();
-    private readonly SettingsStore _store;
+    private readonly ScannerHub _hub;
+    private readonly SettingsService _settingsService;
+    private readonly ExportService _export;
+    private readonly ProjectService _projects;
+    private readonly PresetService _presetService;
+    private readonly UndoService _undo;
+    private readonly Microsoft.Extensions.Logging.ILogger<MainViewModel> _log;
     private readonly AppSettings _settings;
     private readonly Dispatcher _dispatcher = Application.Current.Dispatcher;
 
@@ -38,16 +49,34 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private bool _isScanPreviewVisible;
     private double _zoom = 1.0;
 
-    public MainViewModel()
+    public MainViewModel(
+        ScannerHub hub,
+        SettingsService settingsService,
+        ExportService export,
+        ProjectService projects,
+        PresetService presetService,
+        UndoService undo,
+        Microsoft.Extensions.Logging.ILogger<MainViewModel> log)
     {
-        _store = new SettingsStore(AppContext.BaseDirectory);
-        _settings = _store.Load();
-        if (string.IsNullOrWhiteSpace(_settings.OutputDirectory))
-        {
-            _settings.OutputDirectory = _store.DefaultOutputDirectory;
-        }
+        _hub = hub;
+        _settingsService = settingsService;
+        _export = export;
+        _projects = projects;
+        _presetService = presetService;
+        _undo = undo;
+        _log = log;
+        _settings = settingsService.Current;
         _activeProfile = _settings.FlatbedProfile;
         ThemeManager.Apply(_settings);
+
+        _undo.Changed += (_, _) =>
+        {
+            OnPropertyChanged(nameof(CanUndo));
+            OnPropertyChanged(nameof(CanRedo));
+            (UndoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            (RedoCommand as RelayCommand)?.RaiseCanExecuteChanged();
+        };
+        _presetService.PresetsChanged += (_, _) => RefreshPresets();
 
         Pages.CollectionChanged += (_, _) =>
         {
@@ -82,6 +111,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         ZoomInCommand = new RelayCommand(() => Zoom = Math.Min(8, Zoom + 0.25));
         ZoomOutCommand = new RelayCommand(() => Zoom = Math.Max(1, Zoom - 0.25));
         ZoomFitCommand = new RelayCommand(() => Zoom = 1.0);
+        UndoCommand = new RelayCommand(_undo.Undo, () => _undo.CanUndo);
+        RedoCommand = new RelayCommand(_undo.Redo, () => _undo.CanRedo);
+        SavePresetCommand = new RelayCommand(SavePreset, () => !string.IsNullOrWhiteSpace(NewPresetName));
+        DeletePresetCommand = new RelayCommand(() => { if (SelectedPreset is { } p) _presetService.DeletePreset(p.Name); }, () => SelectedPreset is not null);
+        RefreshPresets();
 
         foreach (var p in _settings.RecentProjects)
         {
@@ -153,6 +187,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         get => _statusText;
         private set => SetProperty(ref _statusText, value);
+    }
+
+    /// <summary>App version (e.g. "v2.2.0"), read from the assembly so releases self-label.</summary>
+    public string AppVersion { get; } = ReadVersion();
+
+    private static string ReadVersion()
+    {
+        var asm = System.Reflection.Assembly.GetExecutingAssembly();
+        string? v = asm.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                    ?? asm.GetName().Version?.ToString();
+        if (string.IsNullOrWhiteSpace(v))
+        {
+            return string.Empty;
+        }
+        int plus = v.IndexOf('+'); // strip build metadata like "2.2.0+abc123"
+        if (plus >= 0) v = v[..plus];
+        if (v.EndsWith(".0") && v.Count(c => c == '.') == 3) v = v[..^2]; // 2.2.0.0 -> 2.2.0
+        return "v" + v;
     }
 
     // ---- Progressive scan preview ----
@@ -337,6 +389,74 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     public ICommand ZoomInCommand { get; }
     public ICommand ZoomOutCommand { get; }
     public ICommand ZoomFitCommand { get; }
+    public ICommand UndoCommand { get; }
+    public ICommand RedoCommand { get; }
+    public ICommand SavePresetCommand { get; }
+    public ICommand DeletePresetCommand { get; }
+
+    // ---- Undo/redo ----
+    public bool CanUndo => _undo.CanUndo;
+    public bool CanRedo => _undo.CanRedo;
+
+    // ---- Presets ----
+    public ObservableCollection<ScanPreset> Presets { get; } = new();
+
+    private ScanPreset? _selectedPreset;
+    private string _newPresetName = string.Empty;
+
+    public ScanPreset? SelectedPreset
+    {
+        get => _selectedPreset;
+        set
+        {
+            if (SetProperty(ref _selectedPreset, value))
+            {
+                (DeletePresetCommand as RelayCommand)?.RaiseCanExecuteChanged();
+                if (value is not null)
+                {
+                    ApplyPreset(value);
+                }
+            }
+        }
+    }
+
+    public string NewPresetName
+    {
+        get => _newPresetName;
+        set
+        {
+            if (SetProperty(ref _newPresetName, value))
+            {
+                (SavePresetCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            }
+        }
+    }
+
+    private void RefreshPresets()
+    {
+        Presets.Clear();
+        foreach (var p in _presetService.Presets)
+        {
+            Presets.Add(p);
+        }
+    }
+
+    private void SavePreset()
+    {
+        _presetService.SavePreset(ScanPreset.From(NewPresetName.Trim(), _activeProfile, ImageFormat));
+        StatusText = $"Preset \"{NewPresetName.Trim()}\" saved.";
+        NewPresetName = string.Empty;
+    }
+
+    private void ApplyPreset(ScanPreset preset)
+    {
+        _modeOverridden = true; // a preset is an explicit choice; don't let auto-mode fight it
+        preset.ApplyTo(_settings.ProfileFor(preset.Mode));
+        ApplyMode(preset.Mode);
+        ImageFormat = preset.Format;
+        Save();
+        StatusText = $"Preset \"{preset.Name}\" applied.";
+    }
 
     private void SetModeManually(ScanMode mode)
     {
@@ -504,7 +624,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void AddPage(ScannedPage page)
     {
-        var vm = new PageViewModel(page, RemovePage) { Number = Pages.Count + 1 };
+        var vm = new PageViewModel(page, RemovePage, _undo) { Number = Pages.Count + 1 };
         Pages.Add(vm);
         SelectedPage = vm;
         IsScanPreviewVisible = false; // finished page replaces the live preview
@@ -546,21 +666,8 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void UpdateTemplateFromBuilder()
     {
-        var parts = new List<string> { string.IsNullOrWhiteSpace(FileNamePrefix) ? "Scan" : FileNamePrefix.Trim() };
-        if (IncludeDateInName)
-        {
-            parts.Add("{date}");
-        }
-        if (IncludeCounterInName)
-        {
-            int digits = Math.Clamp(CounterDigits, 1, 6);
-            parts.Add("{counter:" + new string('0', digits) + "}");
-        }
-        else if (!IncludeDateInName)
-        {
-            parts.Add("{counter}"); // always keep something unique
-        }
-        _settings.FileNameTemplate = string.Join("_", parts);
+        _settings.FileNameTemplate = ExportService.ComposeTemplate(
+            FileNamePrefix, IncludeDateInName, IncludeCounterInName, CounterDigits);
         OnPropertyChanged(nameof(FileNamePreview));
         Save();
     }
@@ -604,7 +711,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
             var inputs = Pages.Select(p => new ProjectPageInput(p.CloneOriginal(), p.Page.Dpi, p.GetEdits())).ToList();
             try
             {
-                ProjectStore.Save(dialog.FolderName, inputs);
+                _projects.Save(dialog.FolderName, inputs);
             }
             finally
             {
@@ -615,6 +722,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
+            Microsoft.Extensions.Logging.LoggerExtensions.LogError(_log, ex, "Save project failed");
             StatusText = $"Save project failed: {ex.Message}";
         }
     }
@@ -630,20 +738,20 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void OpenProjectFolder(string? dir)
     {
-        if (string.IsNullOrWhiteSpace(dir) || !ProjectStore.IsProject(dir))
+        if (string.IsNullOrWhiteSpace(dir) || !_projects.IsProject(dir))
         {
             StatusText = "That folder isn't a project.";
             return;
         }
         try
         {
-            var data = ProjectStore.Load(dir);
-            LoadPages(data);
+            LoadPages(_projects.Load(dir));
             AddToRecent(dir);
             StatusText = $"Opened project ({Pages.Count} pages) from {dir}";
         }
         catch (Exception ex)
         {
+            Microsoft.Extensions.Logging.LoggerExtensions.LogError(_log, ex, "Open project failed for {Dir}", dir);
             StatusText = $"Open project failed: {ex.Message}";
         }
     }
@@ -651,10 +759,11 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     private void LoadPages(List<ProjectPageData> data)
     {
         ClearAll();
+        _undo.Clear(); // history from a previous session can't apply to reloaded pages
         foreach (var d in data)
         {
             var page = new ScannedPage(d.Image, d.Dpi);
-            var vm = new PageViewModel(page, RemovePage, d.Edits) { Number = Pages.Count + 1 };
+            var vm = new PageViewModel(page, RemovePage, _undo, d.Edits) { Number = Pages.Count + 1 };
             Pages.Add(vm);
         }
         SelectedPage = Pages.FirstOrDefault();
@@ -662,60 +771,35 @@ public sealed class MainViewModel : ObservableObject, IDisposable
 
     private void AddToRecent(string dir)
     {
-        RecentProjects.Remove(dir);
-        RecentProjects.Insert(0, dir);
-        while (RecentProjects.Count > 8)
+        _settings.RecentProjects = ProjectService.Promote(RecentProjects, dir);
+        RecentProjects.Clear();
+        foreach (var r in _settings.RecentProjects)
         {
-            RecentProjects.RemoveAt(RecentProjects.Count - 1);
+            RecentProjects.Add(r);
         }
-        _settings.RecentProjects = RecentProjects.ToList();
         Save();
     }
-
-    private string SessionDir => Path.Combine(_store.DataDirectory, "Session");
 
     /// <summary>Persists the current pages+edits so the next launch restores them automatically.</summary>
     public void SaveSession()
     {
+        var inputs = Pages.Select(p => new ProjectPageInput(p.CloneOriginal(), p.Page.Dpi, p.GetEdits())).ToList();
         try
         {
-            if (!HasPages)
-            {
-                if (Directory.Exists(SessionDir)) Directory.Delete(SessionDir, recursive: true);
-                return;
-            }
-            var inputs = Pages.Select(p => new ProjectPageInput(p.CloneOriginal(), p.Page.Dpi, p.GetEdits())).ToList();
-            try
-            {
-                ProjectStore.Save(SessionDir, inputs);
-            }
-            finally
-            {
-                foreach (var i in inputs) i.Original.Dispose();
-            }
+            _projects.SaveSession(inputs);
         }
-        catch
+        finally
         {
-            // auto-save is best-effort
+            foreach (var i in inputs) i.Original.Dispose();
         }
     }
 
     private void TryRestoreSession()
     {
-        try
+        if (_projects.TryLoadSession() is { Count: > 0 } data)
         {
-            if (ProjectStore.IsProject(SessionDir))
-            {
-                LoadPages(ProjectStore.Load(SessionDir));
-                if (HasPages)
-                {
-                    StatusText = $"Restored last session ({Pages.Count} pages).";
-                }
-            }
-        }
-        catch
-        {
-            // ignore a corrupt session
+            LoadPages(data);
+            StatusText = $"Restored last session ({Pages.Count} pages).";
         }
     }
 
@@ -807,58 +891,51 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         SelectedPage = page;
     }
 
+    /// <summary>Snapshot of pages for the export service; caller must dispose the originals.</summary>
+    private List<ExportPage> SnapshotForExport() =>
+        Pages.Select(p => new ExportPage(p.CloneOriginal(), p.GetEdits(), p.Page.Dpi)).ToList();
+
     private void SaveImages()
     {
+        var snapshot = SnapshotForExport();
         try
         {
-            string dir = EnsureOutputDir();
-            var now = DateTime.Now;
-            string ext = ImageFormat.Extension();
-            int counter = 1;
-            foreach (var p in Pages)
-            {
-                string baseName = FileNameTemplate.Expand(FileNameTemplateText, counter, now);
-                string path = FileNameTemplate.ResolveUniquePath(dir, baseName, ext, File.Exists);
-                // Apply the per-page crop non-destructively at export time.
-                using var export = new ScannedPage(p.RenderForExport(), p.Page.Dpi);
-                ImageExporter.Save(export, path, ImageFormat, _settings.JpegQuality);
-                counter++;
-            }
-            StatusText = $"Saved {Pages.Count} image{(Pages.Count == 1 ? "" : "s")} to {dir}";
+            var written = _export.SaveImages(snapshot, EnsureOutputDir(), FileNameTemplateText, ImageFormat, _settings.JpegQuality);
+            StatusText = $"Saved {written.Count} image{(written.Count == 1 ? "" : "s")} to {EnsureOutputDir()}";
         }
         catch (Exception ex)
         {
+            Microsoft.Extensions.Logging.LoggerExtensions.LogError(_log, ex, "Image export failed");
             StatusText = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            foreach (var s in snapshot) s.Original.Dispose();
         }
     }
 
     private void SavePdf()
     {
+        var snapshot = SnapshotForExport();
         try
         {
-            string dir = EnsureOutputDir();
-            string baseName = FileNameTemplate.Expand(FileNameTemplateText, 1, DateTime.Now);
-            string path = FileNameTemplate.ResolveUniquePath(dir, baseName, ".pdf", File.Exists);
-            var exportPages = Pages.Select(p => new ScannedPage(p.RenderForExport(), p.Page.Dpi)).ToList();
-            try
-            {
-                PdfExporter.Save(exportPages, path, _settings.JpegQuality);
-            }
-            finally
-            {
-                foreach (var ep in exportPages) ep.Dispose();
-            }
+            string path = _export.SavePdf(snapshot, EnsureOutputDir(), FileNameTemplateText, _settings.JpegQuality);
             StatusText = $"Saved PDF: {path}";
         }
         catch (Exception ex)
         {
+            Microsoft.Extensions.Logging.LoggerExtensions.LogError(_log, ex, "PDF export failed");
             StatusText = $"PDF save failed: {ex.Message}";
+        }
+        finally
+        {
+            foreach (var s in snapshot) s.Original.Dispose();
         }
     }
 
     private string EnsureOutputDir()
     {
-        string dir = string.IsNullOrWhiteSpace(OutputDirectory) ? _store.DefaultOutputDirectory : OutputDirectory;
+        string dir = string.IsNullOrWhiteSpace(OutputDirectory) ? _settingsService.DefaultOutputDirectory : OutputDirectory;
         Directory.CreateDirectory(dir);
         return dir;
     }
@@ -868,7 +945,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         var dialog = new OpenFolderDialog
         {
             Title = "Choose where to save scans",
-            InitialDirectory = Directory.Exists(OutputDirectory) ? OutputDirectory : _store.DefaultOutputDirectory
+            InitialDirectory = Directory.Exists(OutputDirectory) ? OutputDirectory : _settingsService.DefaultOutputDirectory
         };
         if (dialog.ShowDialog() == true)
         {
@@ -916,17 +993,7 @@ public sealed class MainViewModel : ObservableObject, IDisposable
         (SaveProjectCommand as RelayCommand)?.RaiseCanExecuteChanged();
     }
 
-    private void Save()
-    {
-        try
-        {
-            _store.Save(_settings);
-        }
-        catch
-        {
-            // settings are best-effort; never block the UI on a save failure
-        }
-    }
+    private void Save() => _settingsService.Save();
 
     public void Dispose()
     {

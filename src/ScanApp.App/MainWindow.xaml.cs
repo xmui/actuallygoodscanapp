@@ -4,14 +4,14 @@ using ScanApp.App.ViewModels;
 
 namespace ScanApp.App;
 
-public partial class MainWindow : Window
+public partial class MainWindow
 {
     private readonly MainViewModel _viewModel;
 
-    public MainWindow()
+    public MainWindow(MainViewModel viewModel)
     {
         InitializeComponent();
-        _viewModel = new MainViewModel();
+        _viewModel = viewModel;
         DataContext = _viewModel;
     }
 

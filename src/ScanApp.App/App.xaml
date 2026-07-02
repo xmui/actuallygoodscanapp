@@ -1,10 +1,16 @@
 <Application x:Class="ScanApp.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:inf="clr-namespace:ScanApp.App.Infrastructure"
-             StartupUri="MainWindow.xaml">
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+             xmlns:inf="clr-namespace:ScanApp.App.Infrastructure">
     <Application.Resources>
         <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Fluent theme + control templates (window chrome, SymbolIcon, ProgressRing…).
+                     Our own implicit styles below take precedence where both define one. -->
+                <ui:ThemesDictionary Theme="Dark" />
+                <ui:ControlsDictionary />
+            </ResourceDictionary.MergedDictionaries>
 
             <inf:BoolToVisibilityConverter x:Key="BoolToVis" />
             <inf:NullToVisibilityConverter x:Key="NullToVis" />

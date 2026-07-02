@@ -1,0 +1,12 @@
+<Project>
+  <!--
+    Single source of truth for the app version across all projects.
+    CI overrides this from the release tag (e.g. `-p:Version=2.2.0`), so releases are stamped
+    automatically; local/dev builds use the value below.
+  -->
+  <PropertyGroup>
+    <Version>2.2.0</Version>
+    <Product>Actually Good Scanning App</Product>
+    <Company>Actually Good Scanning App</Company>
+  </PropertyGroup>
+</Project>
