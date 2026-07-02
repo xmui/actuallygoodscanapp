@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
@@ -186,6 +187,24 @@ public sealed class MainViewModel : ObservableObject, IDisposable
     {
         get => _statusText;
         private set => SetProperty(ref _statusText, value);
+    }
+
+    /// <summary>App version (e.g. "v2.2.0"), read from the assembly so releases self-label.</summary>
+    public string AppVersion { get; } = ReadVersion();
+
+    private static string ReadVersion()
+    {
+        var asm = System.Reflection.Assembly.GetExecutingAssembly();
+        string? v = asm.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()?.InformationalVersion
+                    ?? asm.GetName().Version?.ToString();
+        if (string.IsNullOrWhiteSpace(v))
+        {
+            return string.Empty;
+        }
+        int plus = v.IndexOf('+'); // strip build metadata like "2.2.0+abc123"
+        if (plus >= 0) v = v[..plus];
+        if (v.EndsWith(".0") && v.Count(c => c == '.') == 3) v = v[..^2]; // 2.2.0.0 -> 2.2.0
+        return "v" + v;
     }
 
     // ---- Progressive scan preview ----

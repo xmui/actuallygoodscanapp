@@ -48,7 +48,13 @@ jobs:
           # NOTE: do not name this VERSION — MSBuild/NuGet reads $VERSION as the project's
           # $(Version) property, which breaks restore/publish for non-SemVer values.
           "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "Version: $version"
+
+          # Numeric version stamped into the built assemblies (strip a leading 'v'; fall back to
+          # 0.0.0 for dev builds). This makes the app self-report its release version.
+          $numeric = ($version -replace '^v', '')
+          if ($numeric -notmatch '^\d+\.\d+(\.\d+)?$') { $numeric = '0.0.0' }
+          "BUILD_VERSION=$numeric" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Version: $version (build $numeric)"
 
       - name: Restore
         run: dotnet restore ActuallyGoodScanApp.sln
@@ -61,7 +67,7 @@ jobs:
         run: |
           $dir = "pkg/ActuallyGoodScan-$env:RELEASE_VERSION-selfcontained"
           dotnet publish src/ScanApp.App/ScanApp.App.csproj -c Release -r win-x64 `
-            --self-contained true -p:PublishSingleFile=false -o $dir
+            --self-contained true -p:PublishSingleFile=false -p:Version=$env:BUILD_VERSION -o $dir
           if ($LASTEXITCODE -ne 0) { throw "publish failed" }
           'portable' | Out-File -FilePath "$dir/portable.marker" -Encoding utf8
           Copy-Item build/dist/README-selfcontained.txt "$dir/READ-ME-FIRST.txt"
@@ -71,7 +77,7 @@ jobs:
         run: |
           $dir = "pkg/ActuallyGoodScan-$env:RELEASE_VERSION-fxdependent"
           dotnet publish src/ScanApp.App/ScanApp.App.csproj -c Release -r win-x64 `
-            --self-contained false -p:PublishSingleFile=false -o $dir
+            --self-contained false -p:PublishSingleFile=false -p:Version=$env:BUILD_VERSION -o $dir
           if ($LASTEXITCODE -ne 0) { throw "publish failed" }
           'portable' | Out-File -FilePath "$dir/portable.marker" -Encoding utf8
           Copy-Item build/dist/README-fxdependent.txt "$dir/READ-ME-FIRST.txt"
