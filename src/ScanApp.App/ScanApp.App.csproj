@@ -27,6 +27,17 @@
     <PackageReference Include="NTwain" Version="3.7.4" />
     <!-- Used by the Demo scanner to synthesise sample scans so the UI runs without hardware. -->
     <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.4" />
+    <!-- Fluent (Windows 11) window chrome, icons and theme-aware controls. -->
+    <PackageReference Include="WPF-UI" Version="3.0.5" />
+    <!-- Composition root: DI container + hosted lifetime. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
+    <!-- Structured file logging so field issues with scanners are diagnosable. -->
+    <PackageReference Include="Serilog.Extensions.Logging" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ScanApp.Services\ScanApp.Services.csproj" />
   </ItemGroup>
 
 </Project>

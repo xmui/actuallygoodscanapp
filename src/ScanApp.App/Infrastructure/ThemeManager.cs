@@ -67,6 +67,22 @@ public static class ThemeManager
         var accent = Parse(settings.AccentColor, Color.FromArgb(0xFF, 0x4F, 0x8C, 0xFF));
         SetColor(res, "Accent", accent);
         SetColor(res, "AccentHover", Lighten(accent, 0.14));
+
+        // Keep the Fluent (WPF-UI) chrome — title bar, themed controls — in step with our palette.
+        try
+        {
+            Wpf.Ui.Appearance.ApplicationThemeManager.Apply(
+                light ? Wpf.Ui.Appearance.ApplicationTheme.Light : Wpf.Ui.Appearance.ApplicationTheme.Dark,
+                Wpf.Ui.Controls.WindowBackdropType.Mica,
+                updateAccent: false);
+            Wpf.Ui.Appearance.ApplicationAccentColorManager.Apply(accent, light
+                ? Wpf.Ui.Appearance.ApplicationTheme.Light
+                : Wpf.Ui.Appearance.ApplicationTheme.Dark);
+        }
+        catch
+        {
+            // theme sync is cosmetic; never let it take the app down
+        }
     }
 
     private static void Set(ResourceDictionary res, string key, byte r, byte g, byte b) =>

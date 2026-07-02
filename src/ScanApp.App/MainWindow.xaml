@@ -1,10 +1,14 @@
-<Window x:Class="ScanApp.App.MainWindow"
+<ui:FluentWindow x:Class="ScanApp.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
         xmlns:views="clr-namespace:ScanApp.App.Views"
-        Title="Actually Good Scanning App" Height="780" Width="1180"
-        MinHeight="600" MinWidth="940"
+        Title="Actually Good Scanning App" Height="800" Width="1240"
+        MinHeight="620" MinWidth="980"
         Background="{DynamicResource Bg}"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        WindowCornerPreference="Round"
         WindowStartupLocation="CenterScreen"
         AllowDrop="True" DragOver="OnDragOver" Drop="OnFilesDropped">
 
@@ -19,9 +23,18 @@
         <KeyBinding Key="Right" Modifiers="Control" Command="{Binding NextPageCommand}" />
         <KeyBinding Key="R" Command="{Binding RotateSelectedRightCommand}" />
         <KeyBinding Key="R" Modifiers="Shift" Command="{Binding RotateSelectedLeftCommand}" />
+        <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}" />
+        <KeyBinding Key="Y" Modifiers="Control" Command="{Binding RedoCommand}" />
     </Window.InputBindings>
 
     <Grid>
-        <views:ScanView />
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" Title="Actually Good Scanning App" ShowMaximize="True" ShowMinimize="True" />
+
+        <views:ScanView Grid.Row="1" />
     </Grid>
-</Window>
+</ui:FluentWindow>
